@@ -1,11 +1,13 @@
 import os
 import requests
+import traceback
 from typing import TypedDict, Annotated
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
 from langchain_aws import ChatBedrockConverse
 from langchain_core.messages import HumanMessage
+from langchain_core.tools import tool
 from bedrock_agentcore import BedrockAgentCoreApp
 from bedrock_agentcore.identity.auth import requires_access_token
 
@@ -14,8 +16,7 @@ from bedrock_agentcore.identity.auth import requires_access_token
     scopes=["repo", "read:user"],
     auth_flow='USER_FEDERATION' 
 )
-def get_github_user_profile(access_token=None):
-    """Fetches the authenticated user's GitHub profile."""
+def _internal_github_profile(access_token=None):
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Accept": "application/vnd.github.v3+json"
@@ -24,7 +25,12 @@ def get_github_user_profile(access_token=None):
     if response.status_code == 200:
         data = response.json()
         return f"User: {data.get('login')}, Followers: {data.get('followers')}"
-    return "Failed to fetch profile."
+    return f"Failed to fetch profile: {response.text}"
+
+@tool
+def get_github_user_profile():
+    """Fetches the authenticated user's GitHub profile. Requires no arguments."""
+    return _internal_github_profile()
 
 tools = [get_github_user_profile]
 
@@ -53,10 +59,23 @@ agent_graph = graph_builder.compile()
 app = BedrockAgentCoreApp()
 
 @app.entrypoint
-async def invoke(payload):
-    user_message = payload.get("prompt", "Hello")
-    result = agent_graph.invoke({"messages": [HumanMessage(content=user_message)]})
-    return {"result": result["messages"][-1].content}
+def invoke(payload):
+    try:
+        user_message = payload.get("prompt", "Hello")
+        result = agent_graph.invoke({"messages": [HumanMessage(content=user_message)]})
+        return {"result": result["messages"][-1].content}
+        
+    except Exception as e:
+        error_name = type(e).__name__
+        traceback.print_exc() # Still logs to CloudWatch just in case
+        
+        if "Auth" in error_name or "Authorization" in error_name or "Identity" in error_name:
+            auth_url = getattr(e, 'authorization_url', getattr(e, 'url', None))
+            if auth_url:
+                return {"result": f"🔒 **Permission Required:** Please [Click here to Authorize]({auth_url})"}
+            return {"result": f"🔒 Auth required, but couldn't extract URL. Error details: {str(e)}"}
+        
+        return {"result": f"⚠️ **Backend Crash:** {error_name} - {str(e)}"}
 
 if __name__ == "__main__":
     app.run()
