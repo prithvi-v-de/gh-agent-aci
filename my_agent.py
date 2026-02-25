@@ -6,12 +6,10 @@ app = BedrockAgentCoreApp()
 
 @app.entrypoint
 def invoke(payload):
-    # 1. IMMEDIATE RESPONSE FOR PINGS (Keeps the agent from timing out)
     if payload.get("type") == "warmup":
         return {"result": "Agent is warm and ready!"}
 
     try:
-        # 2. DELAYED HEAVY IMPORTS
         import requests
         from bedrock_agentcore.identity.auth import requires_access_token
         from langgraph.graph import StateGraph, START
@@ -24,7 +22,6 @@ def invoke(payload):
         
         user_message = payload.get("prompt", "Hello")
 
-        # The secure function protected by AgentCore
         @requires_access_token(
             provider_name="github-provider",
             scopes=["repo", "read:user"],
@@ -38,7 +35,6 @@ def invoke(payload):
                 return f"GitHub Profile: {data.get('login')} (Followers: {data.get('followers')}, Repos: {data.get('public_repos')})"
             return f"Error: {r.text}"
 
-        # 3. Wrap it as a LangChain Tool so Claude knows how to use it
         @tool
         def fetch_github_profile():
             """Fetches the authenticated user's GitHub profile and stats. Requires no arguments."""
@@ -46,7 +42,6 @@ def invoke(payload):
 
         tools = [fetch_github_profile]
 
-        # 4. Build the LangGraph Brain and BIND the tools
         llm = ChatBedrockConverse(model="us.anthropic.claude-3-5-sonnet-20241022-v2:0", region_name="us-east-1")
         llm_with_tools = llm.bind_tools(tools)
 
