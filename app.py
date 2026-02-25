@@ -32,17 +32,18 @@ if prompt := st.chat_input("Ask me anything..."):
         message_placeholder.markdown("Thinking...")
         
         try:
-            # The AgentCore specific invocation method
             response = client.invoke_agent_runtime(
                 agentRuntimeArn=AGENT_ARN,
                 runtimeSessionId=st.session_state.session_id,
                 payload=json.dumps({"prompt": prompt}).encode('utf-8')
             )
             
-            full_response = ""
-            for event in response.get('completion'):
-                if 'chunk' in event:
-                    full_response += event['chunk']['bytes'].decode('utf-8')
+            content = []
+            for chunk in response.get('response', []):
+                content.append(chunk.decode('utf-8'))
+            
+            result_dict = json.loads("".join(content))
+            full_response = result_dict.get("result", "No response text found.")
             
             message_placeholder.markdown(full_response)
             st.session_state.messages.append({"role": "assistant", "content": full_response})
