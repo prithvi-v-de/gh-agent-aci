@@ -28,7 +28,7 @@ def invoke(payload):
             provider_name="github-provider",
             scopes=["repo", "read:user"],
             auth_flow='USER_FEDERATION',
-            return_url="https://gh-agent-aci-aq6nrmcvn96tycbvhnqjgf.streamlit.app/" 
+            return_url="https://gh-agent-aci-aq6nrmcvn96tycbvhnqjgf.streamlit.app" 
         )
         def _get_github_data(access_token=None):
             r = requests.get("https://api.github.com/user", headers={"Authorization": f"Bearer {access_token}"})
