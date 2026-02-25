@@ -1,22 +1,24 @@
 import os
 import json
+import re
 from bedrock_agentcore import BedrockAgentCoreApp
 
 app = BedrockAgentCoreApp()
-
-# 1. THE CACHE: This keeps the "brain" in memory so it only builds ONCE
 _CACHED_GRAPH = None
+
+# THE BYPASS ALARM
+class AuthRequiredException(BaseException):
+    def __init__(self, message):
+        self.message = message
 
 @app.entrypoint
 def invoke(payload):
     global _CACHED_GRAPH
     
-    # IMMEDIATE RESPONSE FOR PINGS (Keeps the agent from timing out on boot)
     if payload.get("type") == "warmup":
         return {"result": "Agent is warm and ready!"}
 
     try:
-        # 2. BUILD THE BRAIN (Only happens on the VERY FIRST message)
         if _CACHED_GRAPH is None:
             import requests
             from bedrock_agentcore.identity.auth import requires_access_token
@@ -43,7 +45,24 @@ def invoke(payload):
             @tool
             def fetch_github_profile():
                 """Fetches the authenticated user's GitHub profile and stats. Requires no arguments."""
-                return _get_github_data()
+                try:
+                    return _get_github_data()
+                except Exception as e:
+                    # AGGRESSIVE ALARM TRIGGER
+                    err_str = str(e)
+                    url = getattr(e, 'authorization_url', getattr(e, 'url', getattr(e, 'redirect_url', None)))
+                    
+                    # If it's not a direct attribute, hunt for the URL in the error string
+                    if not url:
+                        match = re.search(r'(https://[^\s\'">]+)', err_str)
+                        if match:
+                            url = match.group(1)
+                    
+                    if url:
+                        raise AuthRequiredException(f"🔒 **Permission Required:** Please [Authorize GitHub]({url})")
+                    
+                    # If we still can't find a URL, break the loop and show the raw error!
+                    raise AuthRequiredException(f"⚠️ **Authorization Failed:** Could not parse link. Raw Error: {err_str}")
 
             tools = [fetch_github_profile]
             llm = ChatBedrockConverse(model="us.anthropic.claude-3-5-sonnet-20241022-v2:0", region_name="us-east-1")
@@ -59,22 +78,20 @@ def invoke(payload):
             builder.add_conditional_edges("chatbot", tools_condition)
             builder.add_edge("tools", "chatbot")
             
-            # Save it to memory!
             _CACHED_GRAPH = builder.compile()
 
-        # 3. FAST EXECUTION (Happens instantly for all subsequent messages)
         from langchain_core.messages import HumanMessage
         user_message = payload.get("prompt", "Hello")
         
         res = _CACHED_GRAPH.invoke({"messages": [HumanMessage(content=user_message)]})
         return {"result": res["messages"][-1].content}
 
+    except AuthRequiredException as auth_err:
+        # Catch our custom alarm and return the message instantly
+        return {"result": auth_err.message}
+        
     except Exception as e:
-        error_str = str(e)
-        if "Auth" in error_str or "Identity" in error_str or "requires_access_token" in error_str:
-            url = getattr(e, 'authorization_url', getattr(e, 'url', None))
-            return {"result": f"🔒 **Permission Required:** Please [Authorize GitHub]({url})"}
-        return {"result": f"⚠️ Backend Error: {error_str}"}
+        return {"result": f"⚠️ Backend Error: {str(e)}"}
 
 if __name__ == "__main__":
     app.run()
