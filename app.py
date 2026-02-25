@@ -50,3 +50,5 @@ if prompt := st.chat_input("Ask me anything..."):
             
         except Exception as e:
             message_placeholder.error(f"Error talking to AWS: {e}")
+
+
