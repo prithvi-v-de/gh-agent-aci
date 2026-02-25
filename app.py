@@ -9,7 +9,7 @@ AGENT_ALIAS_ID = "REPLACE_ME"
 client = boto3.client('bedrock-agent-runtime', region_name="us-east-1")
 
 st.set_page_config(page_title="My AI Assistant", page_icon="🤖")
-st.title("Talk to my AWS Agent 🤖")
+st.title("Talk to my AWS Agent 🤖...")
 
 if "session_id" not in st.session_state:
     st.session_state.session_id = str(uuid.uuid4())
