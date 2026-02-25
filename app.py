@@ -3,8 +3,7 @@ import boto3
 import uuid
 
 # We will update these later
-AGENT_ID = "REPLACE_ME" 
-AGENT_ALIAS_ID = "REPLACE_ME"
+AGENT_ARN = "arn:aws:bedrock-agentcore:us-east-1:***:runtime/myagent-bHKPpuHli3"
 
 client = boto3.client('bedrock-agent-runtime', region_name="us-east-1")
 
