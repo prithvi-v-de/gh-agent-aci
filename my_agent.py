@@ -11,7 +11,7 @@ _CACHED_GRAPH = None
     provider_name="github-provider",
     scopes=["repo", "read:user"],
     auth_flow='USER_FEDERATION',
-    return_url="https://your-app.streamlit.app" # <--- CHECK THIS URL!
+    return_url="https://gh-agent-aci-aq6nrmcvn96tycbvhnqjgf.streamlit.app/"
 )
 def _internal_github_profile(access_token=None):
     headers = {"Authorization": f"Bearer {access_token}"}
