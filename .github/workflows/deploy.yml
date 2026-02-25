@@ -34,3 +34,5 @@ jobs:
       run: |
         agentcore configure --entrypoint my_agent.py
         agentcore launch
+
+        
