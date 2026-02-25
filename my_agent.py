@@ -58,8 +58,7 @@ def get_agent_graph():
     provider_name="github-provider",
     scopes=["repo", "read:user"],
     auth_flow='USER_FEDERATION',
-    # Replace the URL below with your actual live Streamlit app URL
-    return_url="https://share.streamlit.io/your-username/your-repo/main/app.py" 
+    return_url="https://gh-agent-aci-aq6nrmcvn96tycbvhnqjgf.streamlit.app/" 
 )
 def _internal_github_profile(access_token=None):
     headers = {"Authorization": f"Bearer {access_token}"}
