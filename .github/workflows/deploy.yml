@@ -34,6 +34,6 @@ jobs:
     - name: Deploy via AgentCore CLI
       run: |
         printf "myagent\n\n\n\n\n\n\n\n\n\n" | agentcore configure --entrypoint my_agent.py
-        agentcore launch
+        agentcore launch --auto-update-on-conflict
 
         
