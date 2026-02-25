@@ -20,6 +20,7 @@ jobs:
     - name: Install Dependencies
       run: |
         python -m pip install --upgrade pip
+        pip install uv
         pip install -r requirements.txt
 
     - name: Configure AWS Credentials
@@ -32,7 +33,7 @@ jobs:
 
     - name: Deploy via AgentCore CLI
       run: |
-        printf "myagent\n\n" | agentcore configure --entrypoint my_agent.py
+        printf "myagent\n\n\n\n\n\n\n\n\n\n" | agentcore configure --entrypoint my_agent.py
         agentcore launch
 
         
