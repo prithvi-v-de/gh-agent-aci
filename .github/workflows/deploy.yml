@@ -32,7 +32,7 @@ jobs:
 
     - name: Deploy via AgentCore CLI
       run: |
-        printf "myagent\nrequirements.txt\n" | agentcore configure --entrypoint my_agent.py
+        printf "myagent\n\n" | agentcore configure --entrypoint my_agent.py
         agentcore launch
 
         
