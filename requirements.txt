@@ -1,0 +1,7 @@
+bedrock-agentcore
+bedrock-agentcore-starter-toolkit
+langgraph
+langchain-aws
+requests
+boto3
+streamlit
