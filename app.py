@@ -10,6 +10,23 @@ client = boto3.client('bedrock-agentcore', region_name="us-east-1")
 st.set_page_config(page_title="My AI Assistant", page_icon="🤖")
 st.title("Talk to my AWS Agent 🤖")
 
+
+
+# AUTOMATIC WARMUP
+if "warmed_up" not in st.session_state:
+    with st.spinner("Waking up agent..."):
+        try:
+            client.invoke_agent_runtime(
+                agentRuntimeArn=AGENT_ARN,
+                runtimeSessionId="warmup-session",
+                payload=json.dumps({"type": "warmup"}).encode('utf-8')
+            )
+            st.session_state.warmed_up = True
+            st.success("Agent is online!")
+        except:
+            st.warning("Agent is still sleeping. First message might take a moment.")
+
+
 # Initialize Session state for Chat
 if "session_id" not in st.session_state:
     st.session_state.session_id = str(uuid.uuid4())
