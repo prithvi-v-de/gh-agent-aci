@@ -1,14 +1,16 @@
 import streamlit as st
 import boto3
 import uuid
+import json
 
-# We will update these later
-AGENT_ARN = "arn:aws:bedrock-agentcore:us-east-1:***:runtime/myagent-bHKPpuHli3"
+# Your specific AgentCore ARN
+AGENT_ARN = "arn:aws:bedrock-agentcore:us-east-1:819079555973:runtime/myagent-bHKPpuHli3" 
 
-client = boto3.client('bedrock-agent-runtime', region_name="us-east-1")
+# Connect specifically to the AgentCore Runtime
+client = boto3.client('bedrock-agentcore', region_name="us-east-1")
 
 st.set_page_config(page_title="My AI Assistant", page_icon="🤖")
-st.title("Talk to my AWS Agent 🤖...")
+st.title("Talk to my AWS Agent 🤖")
 
 if "session_id" not in st.session_state:
     st.session_state.session_id = str(uuid.uuid4())
@@ -30,11 +32,11 @@ if prompt := st.chat_input("Ask me anything..."):
         message_placeholder.markdown("Thinking...")
         
         try:
-            response = client.invoke_agent(
-                agentId=AGENT_ID,
-                agentAliasId=AGENT_ALIAS_ID,
-                sessionId=st.session_state.session_id,
-                inputText=prompt
+            # The AgentCore specific invocation method
+            response = client.invoke_agent_runtime(
+                agentRuntimeArn=AGENT_ARN,
+                runtimeSessionId=st.session_state.session_id,
+                payload=json.dumps({"prompt": prompt}).encode('utf-8')
             )
             
             full_response = ""
