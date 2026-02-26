@@ -15,39 +15,12 @@ client = boto3.client('bedrock-agentcore', region_name="us-east-1", config=my_co
 
 st.set_page_config(page_title="AWS Terminal", layout="centered")
 
-st.markdown("""
-<style>
-    .stApp {
-        background-color: #0c0c0c;
-    }
-    html, body, [class*="css"], p, div, span {
-        font-family: 'Courier New', Courier, monospace !important;
-        color: #00FF00 !important;
-    }
-    header {visibility: hidden;}
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    
-    /* Style the input box to look like a command line */
-    [data-testid="stChatInput"] {
-        background-color: #0c0c0c !important;
-        border-top: 1px solid #00FF00 !important;
-    }
-    [data-testid="stChatInput"] textarea {
-        color: #00FF00 !important;
-    }
-    
-    /* Agent output color (Cyan for contrast) */
-    .agent-text {
-        color: #00FFFF !important;
-    }
-</style>
-""", unsafe_allow_html=True)
-
+# --- TERMINAL HEADER ---
 st.markdown("### AWS Bedrock AgentCore Terminal v1.0.0")
 st.markdown("Type commands below. Connection secured via IAM Identity Center.")
 st.markdown("---")
 
+# --- AUTOMATIC WARMUP ---
 if "warmed_up" not in st.session_state:
     with st.status("> ping -c 1 bedrock-agentcore...", expanded=False) as status:
         try:
@@ -67,15 +40,15 @@ if "session_id" not in st.session_state:
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# We use raw markdown instead of st.chat_message to remove the bubbles/avatars
+# --- TERMINAL CHAT HISTORY ---
 for message in st.session_state.messages:
     if message["role"] == "user":
         st.markdown(f"**guest@github-portfolio:~$** {message['content']}")
     else:
-        st.markdown(f"<span class='agent-text'>**agent@aws:~$** {message['content']}</span>", unsafe_allow_html=True)
+        st.markdown(f"**agent@aws:~$** {message['content']}")
 
+# --- USER INPUT ---
 if prompt := st.chat_input("Enter command..."):
-    # Display user command immediately
     st.markdown(f"**guest@github-portfolio:~$** {prompt}")
     st.session_state.messages.append({"role": "user", "content": prompt})
 
@@ -97,7 +70,7 @@ if prompt := st.chat_input("Enter command..."):
             
             status.update(label="> Script executed successfully.", state="complete", expanded=False)
             
-            st.markdown(f"<span class='agent-text'>**agent@aws:~$** {full_response}</span>", unsafe_allow_html=True)
+            st.markdown(f"**agent@aws:~$** {full_response}")
             st.session_state.messages.append({"role": "assistant", "content": full_response})
             
         except Exception as e:
