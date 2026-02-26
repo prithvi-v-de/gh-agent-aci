@@ -4,12 +4,12 @@ agents:
     name: myagent
     language: python
     node_version: '20'
-    entrypoint: /workspaces/gh-agent-aci/my_agent.py
+    entrypoint: my_agent.py
     deployment_type: direct_code_deploy
     runtime_type: PYTHON_3_11
     platform: linux/arm64
     container_runtime: null
-    source_path: /workspaces/gh-agent-aci
+    source_path: .
     aws:
       execution_role: arn:aws:iam::819079555973:role/AmazonBedrockAgentCoreSDKRuntime-us-east-1-ef1b693622
       execution_role_auto_create: false
