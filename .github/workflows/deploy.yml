@@ -39,27 +39,59 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Configure Agent
+      - name: Configure Agent (expect-based)
         run: |
-          # Inputs (one per prompt, in order):
-          #   1. Agent name: myagent
-          #   2. Requirements file: (Enter = use detected)
-          #   3. Deployment type: 1 (Direct Code Deploy)
-          #   4. Python version: 2 (PYTHON_3_11)
-          #   5. Execution role: (Enter = auto-create)
-          #   6. S3 bucket: (Enter = auto-create)
-          #   7. OAuth: (Enter = no)
-          #   8. Header allowlist: (Enter = no)
-          (
-            echo "myagent"
-            echo ""
-            echo "1"
-            echo "2"
-            echo ""
-            echo ""
-            echo ""
-            echo ""
-          ) | agentcore configure --entrypoint my_agent.py --disable-memory
+          sudo apt-get install -y expect
+
+          cat > /tmp/configure_agent.exp << 'EXPECT_EOF'
+          #!/usr/bin/expect -f
+          set timeout 120
+
+          spawn agentcore configure --entrypoint my_agent.py --disable-memory
+
+          # 1. Agent name
+          expect "Agent name"
+          send "myagent\r"
+
+          # 2. Requirements file
+          expect "Press Enter to use"
+          send "\r"
+
+          # 3. Deployment type (1 = Direct Code Deploy)
+          expect "Choice"
+          send "1\r"
+
+          # 4. Python version (2 = 3.11)
+          expect "Choice"
+          send "2\r"
+
+          # 5. Execution role
+          expect "press Enter to auto-create"
+          send "\r"
+
+          # 6. S3 bucket
+          expect "press Enter to auto-create"
+          send "\r"
+
+          # 7. OAuth authorizer
+          expect "OAuth"
+          send "no\r"
+
+          # 8. Request header allowlist
+          expect "header"
+          send "no\r"
+
+          # Wait for completion
+          expect {
+            "Configuration Success" { exit 0 }
+            "Config saved" { exit 0 }
+            timeout { puts "TIMEOUT"; exit 1 }
+            eof { exit 0 }
+          }
+          EXPECT_EOF
+
+          chmod +x /tmp/configure_agent.exp
+          expect /tmp/configure_agent.exp
 
       - name: Attach ECR Permissions to Execution Role
         run: |
