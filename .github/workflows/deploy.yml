@@ -54,23 +54,23 @@ jobs:
           send "myagent\r"
 
           # 2. Requirements file
-          expect "Press Enter to use"
+          expect "dependency file"
           send "\r"
 
           # 3. Deployment type (1 = Direct Code Deploy)
-          expect "Choice"
+          expect "Select deployment type"
           send "1\r"
 
           # 4. Python version (2 = 3.11)
-          expect "Choice"
+          expect "Select Python runtime version"
           send "2\r"
 
           # 5. Execution role
-          expect "press Enter to auto-create"
+          expect "Execution role ARN/name"
           send "\r"
 
           # 6. S3 bucket
-          expect "press Enter to auto-create"
+          expect "S3 URI/path"
           send "\r"
 
           # 7. OAuth authorizer
@@ -93,6 +93,7 @@ jobs:
           chmod +x /tmp/configure_agent.exp
           expect /tmp/configure_agent.exp
 
+        
       - name: Attach ECR Permissions to Execution Role
         run: |
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
