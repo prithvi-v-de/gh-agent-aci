@@ -41,7 +41,25 @@ jobs:
 
       - name: Configure Agent
         run: |
-          printf "myagent\n\n1\n\n\n\n\n\n\n\n" | agentcore configure --entrypoint my_agent.py
+          # Inputs (one per prompt, in order):
+          #   1. Agent name: myagent
+          #   2. Requirements file: (Enter = use detected)
+          #   3. Deployment type: 1 (Direct Code Deploy)
+          #   4. Python version: 2 (PYTHON_3_11)
+          #   5. Execution role: (Enter = auto-create)
+          #   6. S3 bucket: (Enter = auto-create)
+          #   7. OAuth: (Enter = no)
+          #   8. Header allowlist: (Enter = no)
+          (
+            echo "myagent"
+            echo ""
+            echo "1"
+            echo "2"
+            echo ""
+            echo ""
+            echo ""
+            echo ""
+          ) | agentcore configure --entrypoint my_agent.py --disable-memory
 
       - name: Attach ECR Permissions to Execution Role
         run: |
