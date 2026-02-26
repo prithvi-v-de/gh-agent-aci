@@ -27,6 +27,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Install uv (required for Direct Code Deploy)
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -36,7 +41,7 @@ jobs:
 
       - name: Configure Agent
         run: |
-          printf "myagent\n\n\n\n\n\n\n\n\n\n" | agentcore configure --entrypoint my_agent.py
+          printf "myagent\n\n1\n\n\n\n\n\n\n\n" | agentcore configure --entrypoint my_agent.py
 
       - name: Attach ECR Permissions to Execution Role
         run: |
