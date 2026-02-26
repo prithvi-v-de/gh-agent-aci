@@ -16,7 +16,7 @@ client = boto3.client('bedrock-agentcore', region_name="us-east-1", config=my_co
 st.set_page_config(page_title="AWS Terminal", layout="centered")
 
 # --- TERMINAL HEADER ---
-st.markdown("### AWS Bedrock AgentCore Terminal v1.0.0")
+st.markdown("### AWS AgentCore Terminal v1.0.0")
 st.markdown("Type commands below. Connection secured via IAM Identity Center.")
 st.markdown("---")
 
