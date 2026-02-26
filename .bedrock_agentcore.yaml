@@ -46,7 +46,11 @@ agents:
       first_invoke_memory_check_done: false
       was_created_by_toolkit: false
     identity:
-      credential_providers: []
+      credential_providers:
+      - name: github-provider
+        arn: arn:aws:bedrock-agentcore:us-east-1:819079555973:token-vault/default/oauth2credentialprovider/github-provider
+        type: github
+        callback_url: ''
       workload: null
     aws_jwt:
       enabled: false
