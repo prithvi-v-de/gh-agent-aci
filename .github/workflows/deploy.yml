@@ -7,7 +7,6 @@ on:
 
 env:
   AWS_REGION: us-east-1
-  AGENT_NAME: myagent
 
 jobs:
   deploy:
@@ -27,7 +26,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Install uv (required for Direct Code Deploy)
+      - name: Install uv
         run: |
           curl -LsSf https://astral.sh/uv/install.sh | sh
           echo "$HOME/.local/bin" >> $GITHUB_PATH
@@ -38,100 +37,6 @@ jobs:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
-
-      - name: Configure Agent (expect-based)
-        run: |
-          sudo apt-get install -y expect
-
-          cat > /tmp/configure_agent.exp << 'EXPECT_EOF'
-          #!/usr/bin/expect -f
-          set timeout 120
-
-          spawn agentcore configure --entrypoint my_agent.py --disable-memory
-
-          # 1. Agent name
-          expect "Agent name"
-          send "myagent\r"
-
-          # 2. Requirements file
-          expect "dependency file"
-          send "\r"
-
-          # 3. Deployment type (1 = Direct Code Deploy)
-          expect "Select deployment type"
-          send "1\r"
-
-          # 4. Python version (2 = 3.11)
-          expect "Select Python runtime version"
-          send "2\r"
-
-          # 5. Execution role
-          expect "Execution role ARN/name"
-          send "\r"
-
-          # 6. S3 bucket
-          expect "S3 URI/path"
-          send "\r"
-
-          # 7. OAuth authorizer
-          expect "OAuth"
-          send "no\r"
-
-          # 8. Request header allowlist
-          expect "header"
-          send "no\r"
-
-          # Wait for completion
-          expect {
-            "Configuration Success" { exit 0 }
-            "Config saved" { exit 0 }
-            timeout { puts "TIMEOUT"; exit 1 }
-            eof { exit 0 }
-          }
-          EXPECT_EOF
-
-          chmod +x /tmp/configure_agent.exp
-          expect /tmp/configure_agent.exp
-
-        
-      - name: Attach ECR Permissions to Execution Role
-        run: |
-          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-          ROLE_NAME="AmazonBedrockAgentCoreSDKRuntime-${{ env.AWS_REGION }}-ef1b693622"
-
-          echo "Attaching ECR permissions to role: ${ROLE_NAME}"
-
-          cat > /tmp/ecr-policy.json << EOF
-          {
-            "Version": "2012-10-17",
-            "Statement": [
-              {
-                "Sid": "ECRAuthToken",
-                "Effect": "Allow",
-                "Action": "ecr:GetAuthorizationToken",
-                "Resource": "*"
-              },
-              {
-                "Sid": "ECRPullImage",
-                "Effect": "Allow",
-                "Action": [
-                  "ecr:BatchGetImage",
-                  "ecr:GetDownloadUrlForLayer",
-                  "ecr:BatchCheckLayerAvailability"
-                ],
-                "Resource": "arn:aws:ecr:${{ env.AWS_REGION }}:${ACCOUNT_ID}:repository/bedrock-agentcore-*"
-              }
-            ]
-          }
-          EOF
-
-          aws iam put-role-policy \
-            --role-name "${ROLE_NAME}" \
-            --policy-name "ECRPullPermissions" \
-            --policy-document file:///tmp/ecr-policy.json
-
-          echo "Waiting 10s for IAM propagation..."
-          sleep 10
 
       - name: Deploy Agent
         run: |
