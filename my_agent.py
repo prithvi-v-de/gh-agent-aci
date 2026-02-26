@@ -1,6 +1,9 @@
 import os
 import json
 import re
+import logging
+import threading
+import queue
 import requests
 from typing import TypedDict, Annotated
 
@@ -15,14 +18,33 @@ from langchain_core.messages import HumanMessage
 
 app = BedrockAgentCoreApp()
 
-# ── Streamlit callback URL (where users return after GitHub OAuth) ──
 CALLBACK_URL = os.environ.get(
     "CALLBACK_URL",
     "https://gh-agent-aci-aq6nrmcvn96tycbvhnqjgf.streamlit.app",
 )
 
 
-# ── Custom exception for the OAuth redirect flow ──
+# ── Capture auth URLs from the SDK's log/print output ──
+_auth_url_store = []
+
+
+class _AuthURLLogHandler(logging.Handler):
+    """Intercepts log messages to capture the OAuth authorization URL."""
+    def emit(self, record):
+        msg = record.getMessage()
+        if "authorization url" in msg.lower() or "authorize?" in msg.lower():
+            match = re.search(r"(https://[^\s'\"]+)", msg)
+            if match:
+                _auth_url_store.append(match.group(1))
+
+
+# Attach to root logger so we catch the SDK's polling messages
+_handler = _AuthURLLogHandler()
+_handler.setLevel(logging.DEBUG)
+logging.getLogger().addHandler(_handler)
+logging.getLogger().setLevel(logging.DEBUG)
+
+
 class AuthRequiredException(BaseException):
     def __init__(self, message):
         self.message = message
@@ -39,13 +61,11 @@ def _get_github_data(access_token=None):
     """Fetch the authenticated user's profile, repos, and top-language stats."""
     headers = {"Authorization": f"Bearer {access_token}"}
 
-    # 1. Basic profile
     profile_resp = requests.get("https://api.github.com/user", headers=headers)
     if profile_resp.status_code != 200:
         return f"Error fetching profile: {profile_resp.text}"
     profile = profile_resp.json()
 
-    # 2. Public repos (up to 30, sorted by most recently pushed)
     repos_resp = requests.get(
         "https://api.github.com/user/repos",
         headers=headers,
@@ -53,17 +73,15 @@ def _get_github_data(access_token=None):
     )
     repos = repos_resp.json() if repos_resp.status_code == 200 else []
 
-    # 3. Build a summary with languages
     repo_summaries = []
-    for r in repos[:10]:  # top 10 most-recently-pushed
+    for r in repos[:10]:
         lang = r.get("language") or "N/A"
         stars = r.get("stargazers_count", 0)
         desc = r.get("description") or "No description"
         repo_summaries.append(
-            f"  • **{r['name']}** ({lang}, ⭐ {stars}): {desc}"
+            f"  - **{r['name']}** ({lang}, {stars} stars): {desc}"
         )
 
-    # 4. Aggregate language breakdown
     lang_count: dict[str, int] = {}
     for r in repos:
         lang = r.get("language")
@@ -82,32 +100,56 @@ def _get_github_data(access_token=None):
     )
 
 
-# ── Tool definition ──
+def _call_github_with_timeout(timeout_seconds=15):
+    """
+    Call _get_github_data in a thread. If the OAuth decorator starts polling
+    (because user hasn't authorized yet), we capture the auth URL from logs
+    and return it instead of blocking forever.
+    """
+    _auth_url_store.clear()
+    result_queue = queue.Queue()
+
+    def _run():
+        try:
+            data = _get_github_data()
+            result_queue.put(("ok", data))
+        except Exception as e:
+            result_queue.put(("error", e))
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    t.join(timeout=timeout_seconds)
+
+    # If the thread finished, return its result
+    if not result_queue.empty():
+        status, value = result_queue.get_nowait()
+        if status == "ok":
+            return value
+        else:
+            raise value
+
+    # Thread is still running (blocked in polling) — check for captured auth URL
+    if _auth_url_store:
+        url = _auth_url_store[0]
+        raise AuthRequiredException(
+            f"🔒 **GitHub Authorization Required**\n\n"
+            f"Please click the link below to authorize access, then retry your command:\n\n"
+            f"[Authorize GitHub Access]({url})"
+        )
+
+    raise AuthRequiredException(
+        "⚠️ **Timeout:** The agent is waiting for authorization but could not determine the auth URL. "
+        "Please check your AgentCore Identity configuration."
+    )
+
+
 @tool
 def fetch_github_profile():
     """Fetches the authenticated user's GitHub profile, repos, and language stats. Requires no arguments."""
-    try:
-        return _get_github_data()
-    except AuthRequiredException:
-        raise
-    except Exception as e:
-        err_str = str(e)
-        # Try to extract the OAuth authorization URL from the exception
-        url = getattr(e, "authorization_url", None) or getattr(e, "url", None) or getattr(e, "redirect_url", None)
-        if not url:
-            match = re.search(r"(https://[^\s'\">\]]+)", err_str)
-            if match:
-                url = match.group(1)
-        if url:
-            raise AuthRequiredException(
-                f"🔒 **Permission Required:** Please [Authorize GitHub Access]({url}) and then retry your command."
-            )
-        raise AuthRequiredException(
-            f"⚠️ **Authorization Failed:** Could not extract auth link.\nRaw error: {err_str}"
-        )
+    return _call_github_with_timeout(timeout_seconds=15)
 
 
-# ── LangGraph setup (compiled once at module level → no cold-start penalty) ──
+# ── LangGraph setup ──
 tools = [fetch_github_profile]
 llm = ChatBedrockConverse(
     model="us.anthropic.claude-3-5-sonnet-20241022-v2:0",
@@ -133,10 +175,8 @@ builder.add_edge("tools", "chatbot")
 graph = builder.compile()
 
 
-# ── Agent entrypoint ──
 @app.entrypoint
 def invoke(payload):
-    # Fast warmup path
     if payload.get("type") == "warmup":
         return {"result": "Agent is warm and ready."}
 
