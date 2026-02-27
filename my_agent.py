@@ -18,7 +18,7 @@ app = BedrockAgentCoreApp()
 
 CALLBACK_URL = os.environ.get(
     "CALLBACK_URL",
-    "https://legendary-memory-4j45x49gp6p63j5gr-8501.app.github.dev",
+    "https://legendary-memory-4j45x49gp6p63j5gr-8501.app.github.dev/?auth=success",
 )
 
 
