@@ -72,46 +72,65 @@ def _get_github_token(access_token=None):
     return access_token
 
 
-# ── GitHub data fetcher (no decorator, uses cached token) ──
 def _fetch_github_data(token):
-    headers = {"Authorization": f"Bearer {token}"}
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github.v3+json"
+    }
 
+    # 1. Fetch Core Profile Data
     profile_resp = requests.get("https://api.github.com/user", headers=headers)
     if profile_resp.status_code != 200:
         return f"Error fetching profile: {profile_resp.text}"
     profile = profile_resp.json()
 
+    # 2. Fetch Up to 100 Repositories for Better Analytics
     repos_resp = requests.get(
         "https://api.github.com/user/repos",
         headers=headers,
-        params={"sort": "pushed", "per_page": 30, "type": "owner"},
+        params={"sort": "updated", "per_page": 100, "type": "owner"},
     )
     repos = repos_resp.json() if repos_resp.status_code == 200 else []
 
-    repo_summaries = []
-    for r in repos[:10]:
-        lang = r.get("language") or "N/A"
-        stars = r.get("stargazers_count", 0)
-        desc = r.get("description") or "No description"
-        repo_summaries.append(f"  - {r['name']} ({lang}, {stars} stars): {desc}")
-
+    # 3. Calculate Deep Metrics (The "Portfolio" Stats)
+    total_stars = sum(r.get("stargazers_count", 0) for r in repos)
+    total_issues = sum(r.get("open_issues_count", 0) for r in repos)
+    
+    # Calculate Dominant Languages
     lang_count: dict[str, int] = {}
     for r in repos:
         lang = r.get("language")
         if lang:
             lang_count[lang] = lang_count.get(lang, 0) + 1
-    top_langs = sorted(lang_count.items(), key=lambda x: x[1], reverse=True)[:5]
-    lang_str = ", ".join(f"{l} ({c})" for l, c in top_langs) if top_langs else "N/A"
+    
+    # Grab the top 3 languages
+    top_langs = sorted(lang_count.items(), key=lambda x: x[1], reverse=True)[:3]
+    lang_str = ", ".join(f"{l} ({c} repos)" for l, c in top_langs) if top_langs else "N/A"
 
+    # 4. Isolate the "Star" Projects (Sort by stars instead of just recent pushes)
+    top_repos = sorted(repos, key=lambda x: x.get("stargazers_count", 0), reverse=True)[:5]
+    repo_summaries = []
+    for r in top_repos:
+        lang = r.get("language") or "N/A"
+        stars = r.get("stargazers_count", 0)
+        desc = r.get("description") or "No description"
+        repo_summaries.append(f"  - {r['name']} ({lang}, {stars} ⭐): {desc}")
+
+    # 5. Format a Data-Rich String for Claude
+    created_at = profile.get('created_at', '')[:10] if profile.get('created_at') else 'Unknown'
+    
     return (
-        f"GitHub Profile: {profile.get('login')} ({profile.get('name', 'N/A')})\n"
-        f"Bio: {profile.get('bio') or 'N/A'}\n"
-        f"Followers: {profile.get('followers')} | Following: {profile.get('following')}\n"
-        f"Public Repos: {profile.get('public_repos')}\n"
-        f"Top Languages: {lang_str}\n\n"
-        f"Recently Active Repos:\n" + "\n".join(repo_summaries)
+        f"👤 GitHub Profile: {profile.get('login')} ({profile.get('name', 'N/A')})\n"
+        f"📅 Account Created: {created_at}\n"
+        f"🏢 Company: {profile.get('company') or 'N/A'} | 📍 Location: {profile.get('location') or 'N/A'}\n"
+        f"📖 Bio: {profile.get('bio') or 'N/A'}\n"
+        f"👥 Followers: {profile.get('followers')} | Following: {profile.get('following')}\n\n"
+        f"📊 DEEP METRICS (Based on {len(repos)} recent repos):\n"
+        f"  - Total Stars Earned: {total_stars}\n"
+        f"  - Total Open Issues Managed: {total_issues}\n"
+        f"  - Dominant Stack: {lang_str}\n\n"
+        f"🌟 Top 5 Highlighted Repositories:\n" + "\n".join(repo_summaries)
     )
-
 
 # ── LangGraph tool uses the pre-fetched cached token ──
 @tool
