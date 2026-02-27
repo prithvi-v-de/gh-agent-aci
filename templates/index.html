@@ -338,6 +338,13 @@
         const statusText = document.getElementById("statusText");
         let isProcessing = false;
 
+        // --- NEW: Unbreakable Session Management ---
+        let sessionId = localStorage.getItem("gh_agent_session");
+        if (!sessionId) {
+            sessionId = "sess-" + Math.random().toString(36).substring(2, 15);
+            localStorage.setItem("gh_agent_session", sessionId);
+        }
+
         // ── Utility ──
         function addLine(html, cls = "") {
             const div = document.createElement("div");
@@ -397,7 +404,7 @@
                 const res = await fetch("/api/chat", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ prompt: text }),
+                    body: JSON.stringify({ prompt: text, session_id: sessionId }),
                 });
 
                 loadingLine.remove();
@@ -445,6 +452,11 @@
 
         async function switchAccount() {
             try {
+                // Wipe the frontend session to force a fresh AgentCore identity
+                localStorage.removeItem("gh_agent_session");
+                sessionId = "sess-" + Math.random().toString(36).substring(2, 15);
+                localStorage.setItem("gh_agent_session", sessionId);
+                
                 await fetch("/api/reset", { method: "POST" });
                 clearTerminal();
                 addSystem("Session reset. New identity created.");
@@ -454,54 +466,50 @@
             }
         }
 
-        function clearTerminal() {
-            terminal.innerHTML = "";
-        }
-
         // ── OAuth callback handling ──
         function checkOAuthCallback() {
             const params = new URLSearchParams(window.location.search);
             if (params.has("auth") && params.get("auth") === "success") {
-                        // Clean URL
-                        window.history.replaceState({}, document.title, "/");
+                // Clean URL
+                window.history.replaceState({}, document.title, "/");
 
-
-                // Show success banner
                 const banner = document.createElement("div");
                 banner.className = "oauth-banner";
-                banner.innerHTML = '<span class="icon">✓</span> GitHub authorized successfully — fetching your profile...';
+                banner.innerHTML = '<span class="icon">✓</span> GitHub authorized successfully — syncing with AWS...';
                 terminal.appendChild(banner);
 
-                // Auto-fetch profile
                 isProcessing = true;
                 input.disabled = true;
 
-                fetch("/api/chat", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ prompt: "fetch my github profile" }),
-                })
-                .then(res => res.json())
-                .then(data => {
-                    banner.remove();
-                    addUserLine("fetch my github profile");
-                    if (data.type === "auth") {
-                        addSystem("Token may still be processing. Please try the command again in a moment.");
-                    } else if (data.type === "error") {
-                        addError(data.text);
-                    } else {
-                        addAgentLine(formatResponse(data.text));
-                    }
-                })
-                .catch(err => {
-                    banner.remove();
-                    addError("Auto-fetch failed: " + err.message + ". Type the command manually.");
-                })
-                .finally(() => {
-                    isProcessing = false;
-                    input.disabled = false;
-                    input.focus();
-                });
+                // NEW: 3-Second buffer to let AgentCore Identity securely stash the token
+                setTimeout(() => {
+                    fetch("/api/chat", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ prompt: "fetch my github profile", session_id: sessionId }),
+                    })
+                    .then(res => res.json())
+                    .then(data => {
+                        banner.remove();
+                        addUserLine("fetch my github profile");
+                        if (data.type === "auth") {
+                            addSystem("AWS is still processing. Please manually type the command again.");
+                        } else if (data.type === "error") {
+                            addError(data.text);
+                        } else {
+                            addAgentLine(formatResponse(data.text));
+                        }
+                    })
+                    .catch(err => {
+                        banner.remove();
+                        addError("Auto-fetch failed: " + err.message);
+                    })
+                    .finally(() => {
+                        isProcessing = false;
+                        input.disabled = false;
+                        input.focus();
+                    });
+                }, 3000); // <-- The magic 3 seconds
 
                 return true;
             }

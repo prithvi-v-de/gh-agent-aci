@@ -77,13 +77,18 @@ def index():
 def chat():
     data = request.json
     prompt = data.get("prompt", "")
-    if "session_id" not in session:
-        session["session_id"] = str(uuid.uuid4())
+    
+    # 1. Prefer the unbreakable session_id from the frontend localStorage
+    client_session_id = data.get("session_id")
+    if not client_session_id:
+        if "session_id" not in session:
+            session["session_id"] = str(uuid.uuid4())
+        client_session_id = session["session_id"]
 
     try:
         response = client.invoke_agent_runtime(
             agentRuntimeArn=AGENT_ARN,
-            runtimeSessionId=session["session_id"],
+            runtimeSessionId=client_session_id, # Use the synced ID
             payload=json.dumps({"prompt": prompt}).encode("utf-8"),
         )
         result = parse_agent_response(response)
