@@ -339,10 +339,21 @@
         let isProcessing = false;
 
         let sessionId = localStorage.getItem("gh_agent_session");
-        if (!sessionId) {
-            // Use standard 36-character UUID to satisfy AWS minimum length
-            sessionId = crypto.randomUUID(); 
+        if (!sessionId || sessionId.length < 33) {
+            sessionId = generateUUID(); 
             localStorage.setItem("gh_agent_session", sessionId);
+        }
+
+        // --- UUID Generator ---
+        function generateUUID() {
+            if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+                return crypto.randomUUID(); // Use secure method if available
+            }
+            // Fallback for Codespace/HTTP dev environments
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+            });
         }
 
         // ── Utility ──
@@ -454,15 +465,15 @@
             try {
                 // Wipe the frontend session to force a fresh AgentCore identity
                 localStorage.removeItem("gh_agent_session");
-                sessionId = crypto.randomUUID(); // <-- Updated here too
+                sessionId = generateUUID(); // <-- Use the new fallback here
                 localStorage.setItem("gh_agent_session", sessionId);
                 
                 await fetch("/api/reset", { method: "POST" });
                 clearTerminal();
                 addSystem("Session reset. New identity created.");
                 addSystem("Type 'fetch my github profile' to authorize a new account.");
-            } catch {
-                addError("Failed to reset session");
+            } catch (err) {
+                addError("Failed to reset session: " + err.message);
             }
         }
 
