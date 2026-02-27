@@ -4,4 +4,5 @@ langgraph
 langchain-aws
 requests
 boto3
-streamlit
+flask
+gunicorn
