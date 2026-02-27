@@ -1,20 +1,26 @@
 import os
 import json
-import asyncio
+import logging
 import requests
 from typing import TypedDict, Annotated
 
 from bedrock_agentcore import BedrockAgentCoreApp
-from bedrock_agentcore.identity.auth import requires_access_token
-from bedrock_agentcore.services.identity import TokenPoller
+from bedrock_agentcore.runtime import BedrockAgentCoreContext
+from bedrock_agentcore.services.identity import IdentityClient
 from langgraph.graph import StateGraph, START
 from langgraph.prebuilt import ToolNode, tools_condition
 from langgraph.graph.message import add_messages
 from langchain_aws import ChatBedrockConverse
 from langchain_core.tools import tool
 from langchain_core.messages import HumanMessage
+from pathlib import Path
 
 app = BedrockAgentCoreApp()
+
+logger = logging.getLogger("gh-agent")
+logger.setLevel(logging.DEBUG)
+if not logger.handlers:
+    logger.addHandler(logging.StreamHandler())
 
 CALLBACK_URL = os.environ.get(
     "CALLBACK_URL",
@@ -22,50 +28,80 @@ CALLBACK_URL = os.environ.get(
 )
 
 
-# ── Auth URL state — shared between on_auth_url callback and token poller ──
-_auth_state = {"url": None}
-
-
 class AuthRequiredException(BaseException):
-    """BaseException so it escapes LangGraph's ToolNode error handling."""
     def __init__(self, url):
         self.url = url
         super().__init__(url)
 
 
-def _store_auth_url(url: str):
-    """
-    on_auth_url callback. Does NOT raise — just stores the URL.
-    This lets the SDK continue to capture the sessionUri before polling starts.
-    """
-    _auth_state["url"] = url
+def _get_workload_token():
+    """Get workload access token — check runtime context first, then fall back to local dev."""
+    # Try runtime context (when running in AgentCore)
+    token = BedrockAgentCoreContext.get_workload_access_token()
+    if token:
+        logger.info("Got workload token from runtime context")
+        return token
+
+    # Local dev fallback — read from .agentcore.json
+    logger.info("No runtime context token, using local dev fallback")
+    config_path = Path(".agentcore.json")
+    config = {}
+    if config_path.exists():
+        with open(config_path) as f:
+            config = json.load(f) or {}
+
+    workload_name = config.get("workload_identity_name", "myagent-workload")
+    user_id = config.get("user_id", "agent001")
+    logger.info(f"Using workload={workload_name}, user_id={user_id}")
+
+    client = IdentityClient()
+    resp = client.get_workload_access_token(workload_name, user_id=user_id)
+    return resp["workloadAccessToken"]
 
 
-class _QuickTokenPoller(TokenPoller):
+def _get_github_token():
     """
-    Custom token poller that immediately raises with the auth URL
-    instead of polling for 600 seconds. This returns control to the
-    user so they can click the link.
+    Call the identity API directly to get a GitHub OAuth token.
+    Returns the access_token string, or raises AuthRequiredException with the auth URL.
     """
-    async def poll_for_token(self) -> str:
-        # Give the SDK a brief moment (in case token was already authorized)
-        await asyncio.sleep(1)
-        url = _auth_state.get("url", "")
-        if url:
-            raise AuthRequiredException(url)
-        raise RuntimeError("No auth URL captured and no token available")
+    client = IdentityClient()
+    workload_token = _get_workload_token()
+
+    # Call get_resource_oauth2_token directly
+    req = {
+        "resourceCredentialProviderName": "github-provider",
+        "scopes": ["repo", "read:user"],
+        "oauth2Flow": "USER_FEDERATION",
+        "workloadIdentityToken": workload_token,
+        "resourceOauth2ReturnUrl": CALLBACK_URL,
+    }
+
+    logger.info("Calling get_resource_oauth2_token...")
+    response = client.dp_client.get_resource_oauth2_token(**req)
+
+    # Log what we got back
+    safe_resp = {k: v for k, v in response.items() if k != "accessToken"}
+    logger.info(f"Response keys: {list(response.keys())}")
+    logger.info(f"Response (sans token): {safe_resp}")
+
+    # If we got a token, return it
+    if "accessToken" in response:
+        logger.info("Got access token!")
+        return response["accessToken"]
+
+    # If we got an auth URL, return it to the user
+    if "authorizationUrl" in response:
+        auth_url = response["authorizationUrl"]
+        logger.info(f"Got authorization URL: {auth_url[:80]}...")
+        raise AuthRequiredException(auth_url)
+
+    raise RuntimeError(f"Unexpected response: {list(response.keys())}")
 
 
-@requires_access_token(
-    provider_name="github-provider",
-    scopes=["repo", "read:user"],
-    auth_flow="USER_FEDERATION",
-    callback_url=CALLBACK_URL,
-    on_auth_url=_store_auth_url,
-    token_poller=_QuickTokenPoller(),
-)
-def _get_github_data(access_token=None):
-    headers = {"Authorization": f"Bearer {access_token}"}
+def _fetch_github_data():
+    """Fetch GitHub data using the OAuth token from identity."""
+    token = _get_github_token()
+    headers = {"Authorization": f"Bearer {token}"}
 
     profile_resp = requests.get("https://api.github.com/user", headers=headers)
     if profile_resp.status_code != 200:
@@ -84,9 +120,7 @@ def _get_github_data(access_token=None):
         lang = r.get("language") or "N/A"
         stars = r.get("stargazers_count", 0)
         desc = r.get("description") or "No description"
-        repo_summaries.append(
-            f"  - {r['name']} ({lang}, {stars} stars): {desc}"
-        )
+        repo_summaries.append(f"  - {r['name']} ({lang}, {stars} stars): {desc}")
 
     lang_count: dict[str, int] = {}
     for r in repos:
@@ -109,7 +143,7 @@ def _get_github_data(access_token=None):
 @tool
 def fetch_github_profile():
     """Fetches the authenticated user's GitHub profile, repos, and language stats."""
-    return _get_github_data()
+    return _fetch_github_data()
 
 
 # ── LangGraph setup ──
@@ -143,9 +177,6 @@ def invoke(payload):
     if payload.get("type") == "warmup":
         return {"result": "Agent is warm and ready."}
 
-    # Reset auth state each invocation
-    _auth_state["url"] = None
-
     try:
         user_message = payload.get("prompt", "Hello")
         res = graph.invoke({"messages": [HumanMessage(content=user_message)]})
@@ -155,13 +186,9 @@ def invoke(payload):
         return {"result": f"__AUTH_REQUIRED__{e.url}"}
 
     except Exception as e:
-        # Check if auth URL was stored even if a different exception occurred
-        if _auth_state.get("url"):
-            return {"result": f"__AUTH_REQUIRED__{_auth_state['url']}"}
+        logger.error(f"Error: {e}", exc_info=True)
         return {"result": f"Error: {str(e)}"}
 
 
 if __name__ == "__main__":
     app.run()
-
-    
