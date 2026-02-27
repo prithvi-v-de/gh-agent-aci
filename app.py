@@ -21,6 +21,14 @@ st.markdown("### AWS AgentCore Terminal v1.0.0")
 st.markdown("Type commands below. Connection secured via IAM Identity Center.")
 st.markdown("---")
 
+# ── ──
+col1, col2 = st.columns([4, 1])
+with col2:
+    if st.button("🔄 Switch Account"):
+        st.session_state.session_id = str(uuid.uuid4())
+        st.session_state.messages = []
+        st.session_state.warmed_up = False
+        st.rerun()
 
 # ── Helper: parse the EventStream response from invoke_agent_runtime ──
 def parse_agent_response(response) -> str:
