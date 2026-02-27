@@ -461,7 +461,7 @@
         // ── OAuth callback handling ──
         function checkOAuthCallback() {
             const params = new URLSearchParams(window.location.search);
-            if (params.has("session_id")) {
+            if (params.has("auth" && params.get("auth") === "success") {
                 // Clean URL
                 window.history.replaceState({}, document.title, "/");
 
