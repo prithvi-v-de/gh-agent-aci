@@ -33,23 +33,15 @@
             flex-direction: column;
         }
 
-        /* CRT scanline effect */
         body::before {
             content: "";
             position: fixed;
             top: 0; left: 0; right: 0; bottom: 0;
-            background: repeating-linear-gradient(
-                0deg,
-                transparent,
-                transparent 2px,
-                rgba(0, 0, 0, 0.08) 2px,
-                rgba(0, 0, 0, 0.08) 4px
-            );
+            background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0, 0, 0, 0.08) 2px, rgba(0, 0, 0, 0.08) 4px);
             pointer-events: none;
             z-index: 1000;
         }
 
-        /* Header */
         .header {
             border-bottom: 1px solid var(--border);
             padding: 16px 24px;
@@ -59,250 +51,60 @@
             background: var(--bg-light);
         }
 
-        .header-left {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-
-        .logo {
-            font-family: 'Space Mono', monospace;
-            font-size: 16px;
-            font-weight: 700;
-            letter-spacing: 2px;
-        }
-
+        .header-left { display: flex; align-items: center; gap: 12px; }
+        .logo { font-family: 'Space Mono', monospace; font-size: 16px; font-weight: 700; letter-spacing: 2px; }
         .logo span { color: var(--green-dim); }
-
-        .status-dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: var(--amber);
-            animation: pulse 2s infinite;
-        }
-
+        .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--amber); animation: pulse 2s infinite; }
         .status-dot.online { background: var(--green); }
         .status-dot.offline { background: var(--red); animation: none; }
+        .status-text { font-size: 11px; color: var(--green-dim); text-transform: uppercase; letter-spacing: 1px; }
 
-        .status-text {
-            font-size: 11px;
-            color: var(--green-dim);
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
 
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.4; }
-        }
+        .header-right { display: flex; align-items: center; gap: 12px; }
+        .btn { background: transparent; border: 1px solid var(--border); color: var(--green-dim); padding: 6px 14px; font-family: 'IBM Plex Mono', monospace; font-size: 11px; cursor: pointer; text-transform: uppercase; letter-spacing: 1px; transition: all 0.2s; }
+        .btn:hover { background: var(--green-glow); border-color: var(--green-dim); color: var(--green); }
 
-        .header-right {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
+        .terminal { flex: 1; overflow-y: auto; padding: 20px 24px; scroll-behavior: smooth; }
+        .line { margin-bottom: 8px; word-wrap: break-word; animation: fadeIn 0.15s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+        
+        .line .prompt { color: var(--cyan); font-weight: 600; }
+        .line .agent-prompt { color: var(--green); font-weight: 600; }
+        .line .system { color: var(--green-dim); font-style: italic; font-size: 12px; }
+        .line .error { color: var(--red); }
+        .line .content { white-space: pre-wrap; padding-left: 2px; }
 
-        .btn {
-            background: transparent;
-            border: 1px solid var(--border);
-            color: var(--green-dim);
-            padding: 6px 14px;
-            font-family: 'IBM Plex Mono', monospace;
-            font-size: 11px;
-            cursor: pointer;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            transition: all 0.2s;
-        }
+        .auth-btn { display: inline-block; margin: 12px 0; padding: 10px 24px; background: rgba(0, 255, 65, 0.08); border: 1px solid var(--green-dim); color: var(--green); font-family: 'Space Mono', monospace; font-size: 13px; font-weight: 700; text-decoration: none; letter-spacing: 1px; transition: all 0.25s; cursor: pointer; }
+        .auth-btn:hover { background: rgba(0, 255, 65, 0.2); box-shadow: 0 0 20px var(--green-glow); transform: translateY(-1px); }
+        .auth-btn::before { content: "🔑 "; }
 
-        .btn:hover {
-            background: var(--green-glow);
-            border-color: var(--green-dim);
-            color: var(--green);
-        }
+        .spinner { display: inline-block; margin-left: 4px; }
+        .spinner::after { content: ""; animation: spin 0.8s steps(4) infinite; }
+        @keyframes spin { 0% { content: "⠋"; } 25% { content: "⠙"; } 50% { content: "⠹"; } 75% { content: "⠸"; } }
+        .dots::after { content: ""; animation: dots 1.5s steps(3) infinite; }
+        @keyframes dots { 0% { content: "."; } 33% { content: ".."; } 66% { content: "..."; } }
 
-        /* Terminal output area */
-        .terminal {
-            flex: 1;
-            overflow-y: auto;
-            padding: 20px 24px;
-            scroll-behavior: smooth;
-        }
+        .input-area { border-top: 1px solid var(--border); padding: 16px 24px; background: var(--bg-input); display: flex; align-items: center; gap: 8px; }
+        .input-prompt { color: var(--cyan); font-weight: 600; white-space: nowrap; font-size: 14px; }
+        .input-area input { flex: 1; background: transparent; border: none; outline: none; color: var(--green); font-family: 'IBM Plex Mono', monospace; font-size: 14px; caret-color: var(--green); }
+        .input-area input::placeholder { color: rgba(0, 255, 65, 0.2); }
+        .input-area input:disabled { opacity: 0.3; }
 
-        .line {
-            margin-bottom: 8px;
-            word-wrap: break-word;
-            animation: fadeIn 0.15s ease-out;
-        }
+        .welcome { padding: 8px 0 20px 0; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+        .welcome h1 { font-family: 'Space Mono', monospace; font-size: 18px; font-weight: 700; margin-bottom: 6px; letter-spacing: 1px; }
+        .welcome p { color: var(--green-dim); font-size: 12px; }
 
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(4px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        .line .prompt {
-            color: var(--cyan);
-            font-weight: 600;
-        }
-
-        .line .agent-prompt {
-            color: var(--green);
-            font-weight: 600;
-        }
-
-        .line .system {
-            color: var(--green-dim);
-            font-style: italic;
-            font-size: 12px;
-        }
-
-        .line .error {
-            color: var(--red);
-        }
-
-        .line .content {
-            white-space: pre-wrap;
-            padding-left: 2px;
-        }
-
-        /* Auth button */
-        .auth-btn {
-            display: inline-block;
-            margin: 12px 0;
-            padding: 10px 24px;
-            background: rgba(0, 255, 65, 0.08);
-            border: 1px solid var(--green-dim);
-            color: var(--green);
-            font-family: 'Space Mono', monospace;
-            font-size: 13px;
-            font-weight: 700;
-            text-decoration: none;
-            letter-spacing: 1px;
-            transition: all 0.25s;
-            cursor: pointer;
-        }
-
-        .auth-btn:hover {
-            background: rgba(0, 255, 65, 0.2);
-            box-shadow: 0 0 20px var(--green-glow);
-            transform: translateY(-1px);
-        }
-
-        .auth-btn::before {
-            content: "🔑 ";
-        }
-
-        /* Spinner */
-        .spinner {
-            display: inline-block;
-            margin-left: 4px;
-        }
-
-        .spinner::after {
-            content: "";
-            animation: spin 0.8s steps(4) infinite;
-        }
-
-        @keyframes spin {
-            0% { content: "⠋"; }
-            25% { content: "⠙"; }
-            50% { content: "⠹"; }
-            75% { content: "⠸"; }
-        }
-
-        .dots::after {
-            content: "";
-            animation: dots 1.5s steps(3) infinite;
-        }
-
-        @keyframes dots {
-            0% { content: "."; }
-            33% { content: ".."; }
-            66% { content: "..."; }
-        }
-
-        /* Input area */
-        .input-area {
-            border-top: 1px solid var(--border);
-            padding: 16px 24px;
-            background: var(--bg-input);
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .input-prompt {
-            color: var(--cyan);
-            font-weight: 600;
-            white-space: nowrap;
-            font-size: 14px;
-        }
-
-        .input-area input {
-            flex: 1;
-            background: transparent;
-            border: none;
-            outline: none;
-            color: var(--green);
-            font-family: 'IBM Plex Mono', monospace;
-            font-size: 14px;
-            caret-color: var(--green);
-        }
-
-        .input-area input::placeholder {
-            color: rgba(0, 255, 65, 0.2);
-        }
-
-        .input-area input:disabled {
-            opacity: 0.3;
-        }
-
-        /* Welcome block */
-        .welcome {
-            padding: 8px 0 20px 0;
-            border-bottom: 1px solid var(--border);
-            margin-bottom: 16px;
-        }
-
-        .welcome h1 {
-            font-family: 'Space Mono', monospace;
-            font-size: 18px;
-            font-weight: 700;
-            margin-bottom: 6px;
-            letter-spacing: 1px;
-        }
-
-        .welcome p {
-            color: var(--green-dim);
-            font-size: 12px;
-        }
-
-        /* Scrollbar */
         .terminal::-webkit-scrollbar { width: 6px; }
         .terminal::-webkit-scrollbar-track { background: transparent; }
         .terminal::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
         .terminal::-webkit-scrollbar-thumb:hover { background: var(--green-dim); }
 
-        /* OAuth success banner */
-        .oauth-banner {
-            background: rgba(0, 255, 65, 0.06);
-            border: 1px solid var(--green-dim);
-            padding: 10px 16px;
-            margin-bottom: 12px;
-            font-size: 12px;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            animation: fadeIn 0.3s ease-out;
-        }
-
+        .oauth-banner { background: rgba(0, 255, 65, 0.06); border: 1px solid var(--green-dim); padding: 10px 16px; margin-bottom: 12px; font-size: 12px; display: flex; align-items: center; gap: 8px; animation: fadeIn 0.3s ease-out; }
         .oauth-banner .icon { font-size: 16px; }
     </style>
 </head>
 <body>
-
-    <!-- Header -->
     <div class="header">
         <div class="header-left">
             <div class="logo">GH<span>-AGENT</span></div>
@@ -315,7 +117,6 @@
         </div>
     </div>
 
-    <!-- Terminal -->
     <div class="terminal" id="terminal">
         <div class="welcome">
             <h1>▸ GitHub Agent Terminal</h1>
@@ -324,11 +125,9 @@
         </div>
     </div>
 
-    <!-- Input -->
     <div class="input-area">
         <span class="input-prompt">guest@gh-agent:~$</span>
-        <input type="text" id="input" placeholder="enter command..." autofocus
-               onkeydown="if(event.key==='Enter')sendMessage()">
+        <input type="text" id="input" placeholder="enter command..." autofocus onkeydown="if(event.key==='Enter')sendMessage()">
     </div>
 
     <script>
@@ -338,25 +137,21 @@
         const statusText = document.getElementById("statusText");
         let isProcessing = false;
 
-        let sessionId = localStorage.getItem("gh_agent_session");
-        if (!sessionId || sessionId.length < 33) {
-            sessionId = generateUUID(); 
-            localStorage.setItem("gh_agent_session", sessionId);
-        }
-
-        // --- UUID Generator ---
+        // ── Bulletproof UUID Generator (Cannot be blocked by Codespaces) ──
         function generateUUID() {
-            if (typeof crypto !== 'undefined' && crypto.randomUUID) {
-                return crypto.randomUUID(); // Use secure method if available
-            }
-            // Fallback for Codespace/HTTP dev environments
             return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
                 var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
                 return v.toString(16);
             });
         }
 
-        // ── Utility ──
+        // ── Unbreakable Session Management ──
+        let sessionId = localStorage.getItem("gh_agent_session");
+        if (!sessionId || sessionId.length < 33) {
+            sessionId = generateUUID();
+            localStorage.setItem("gh_agent_session", sessionId);
+        }
+
         function addLine(html, cls = "") {
             const div = document.createElement("div");
             div.className = "line" + (cls ? " " + cls : "");
@@ -366,40 +161,20 @@
             return div;
         }
 
-        function addSystem(text) {
-            addLine(`<span class="system">» ${text}</span>`);
-        }
-
-        function addError(text) {
-            addLine(`<span class="error">✗ ${text}</span>`);
-        }
-
-        function addUserLine(text) {
-            addLine(`<span class="prompt">guest@gh-agent:~$</span> ${escapeHtml(text)}`);
-        }
-
-        function addAgentLine(html) {
-            addLine(`<span class="agent-prompt">agent@aws:~$</span> <span class="content">${html}</span>`);
-        }
-
-        function escapeHtml(text) {
-            const d = document.createElement("div");
-            d.textContent = text;
-            return d.innerHTML;
-        }
-
+        function addSystem(text) { addLine(`<span class="system">» ${text}</span>`); }
+        function addError(text) { addLine(`<span class="error">✗ ${text}</span>`); }
+        function addUserLine(text) { addLine(`<span class="prompt">guest@gh-agent:~$</span> ${escapeHtml(text)}`); }
+        function addAgentLine(html) { addLine(`<span class="agent-prompt">agent@aws:~$</span> <span class="content">${html}</span>`); }
+        function escapeHtml(text) { const d = document.createElement("div"); d.textContent = text; return d.innerHTML; }
+        
         function formatResponse(text) {
-            // Convert markdown-style bold
             text = escapeHtml(text);
             text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-            // Convert markdown-style links
             text = text.replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2" target="_blank" class="auth-btn">$1</a>');
-            // Newlines
             text = text.replace(/\n/g, '<br>');
             return text;
         }
 
-        // ── Agent API calls ──
         async function sendMessage() {
             const text = input.value.trim();
             if (!text || isProcessing) return;
@@ -444,7 +219,11 @@
 
         async function warmup() {
             try {
-                const res = await fetch("/api/warmup", { method: "POST" });
+                const res = await fetch("/api/warmup", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ session_id: sessionId })
+                });
                 const data = await res.json();
                 if (data.status === "online") {
                     statusDot.className = "status-dot online";
@@ -461,27 +240,29 @@
             }
         }
 
-        async function switchAccount() {
-            try {
-                // Wipe the frontend session to force a fresh AgentCore identity
-                localStorage.removeItem("gh_agent_session");
-                sessionId = generateUUID(); // <-- Use the new fallback here
-                localStorage.setItem("gh_agent_session", sessionId);
-                
-                await fetch("/api/reset", { method: "POST" });
-                clearTerminal();
-                addSystem("Session reset. New identity created.");
-                addSystem("Type 'fetch my github profile' to authorize a new account.");
-            } catch (err) {
-                addError("Failed to reset session: " + err.message);
-            }
+        function switchAccount() {
+            // Because we killed Flask sessions, this can never fail!
+            localStorage.removeItem("gh_agent_session");
+            sessionId = generateUUID();
+            localStorage.setItem("gh_agent_session", sessionId);
+            
+            clearTerminal();
+            addSystem("Session reset. New identity created.");
+            addSystem("Type 'fetch my github profile' to authorize a new account.");
+            warmup();
         }
 
-        // ── OAuth callback handling ──
+        function clearTerminal() {
+            terminal.innerHTML = "";
+            const welcome = document.createElement("div");
+            welcome.className = "welcome";
+            welcome.innerHTML = `<h1>▸ GitHub Agent Terminal</h1><p>Authenticated agent runtime powered by AWS Bedrock AgentCore + GitHub OAuth</p><p>Type <span style="color:var(--green)">fetch my github profile</span> to get started</p>`;
+            terminal.appendChild(welcome);
+        }
+
         function checkOAuthCallback() {
             const params = new URLSearchParams(window.location.search);
             if (params.has("auth") && params.get("auth") === "success") {
-                // Clean URL
                 window.history.replaceState({}, document.title, "/");
 
                 const banner = document.createElement("div");
@@ -492,7 +273,7 @@
                 isProcessing = true;
                 input.disabled = true;
 
-                // NEW: 3-Second buffer to let AgentCore Identity securely stash the token
+                // 4-Second buffer to let AgentCore securely stash the token
                 setTimeout(() => {
                     fetch("/api/chat", {
                         method: "POST",
@@ -520,14 +301,13 @@
                         input.disabled = false;
                         input.focus();
                     });
-                }, 3000); // <-- The magic 3 seconds
+                }, 4000);
 
                 return true;
             }
             return false;
         }
 
-        // ── Init ──
         if (!checkOAuthCallback()) {
             warmup();
         }
