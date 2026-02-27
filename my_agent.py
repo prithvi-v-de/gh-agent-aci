@@ -16,7 +16,7 @@ app = BedrockAgentCoreApp()
 
 CALLBACK_URL = os.environ.get(
     "CALLBACK_URL",
-    "https://gh-agent-aci-aq6nrmcvn96tycbvhnqjgf.streamlit.app",
+    "https://legendary-memory-4j45x49gp6p63j5gr-8501.app.github.dev",
 )
 
 # ── Global auth state — set by on_auth_url, read by entrypoint ──
