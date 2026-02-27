@@ -54,7 +54,7 @@ def _get_workload_token():
     user_id = config.get("user_id", "agent001")
     logger.info(f"Using workload={workload_name}, user_id={user_id}")
 
-    client = IdentityClient()
+    client = IdentityClient(region="us-east-1")
     resp = client.get_workload_access_token(workload_name, user_id=user_id)
     return resp["workloadAccessToken"]
 
@@ -64,7 +64,7 @@ def _get_github_token():
     Call the identity API directly to get a GitHub OAuth token.
     Returns the access_token string, or raises AuthRequiredException with the auth URL.
     """
-    client = IdentityClient()
+    client = IdentityClient(region="us-east-1")
     workload_token = _get_workload_token()
 
     # Call get_resource_oauth2_token directly
