@@ -338,10 +338,10 @@
         const statusText = document.getElementById("statusText");
         let isProcessing = false;
 
-        // --- NEW: Unbreakable Session Management ---
         let sessionId = localStorage.getItem("gh_agent_session");
         if (!sessionId) {
-            sessionId = "sess-" + Math.random().toString(36).substring(2, 15);
+            // Use standard 36-character UUID to satisfy AWS minimum length
+            sessionId = crypto.randomUUID(); 
             localStorage.setItem("gh_agent_session", sessionId);
         }
 
@@ -454,7 +454,7 @@
             try {
                 // Wipe the frontend session to force a fresh AgentCore identity
                 localStorage.removeItem("gh_agent_session");
-                sessionId = "sess-" + Math.random().toString(36).substring(2, 15);
+                sessionId = crypto.randomUUID(); // <-- Updated here too
                 localStorage.setItem("gh_agent_session", sessionId);
                 
                 await fetch("/api/reset", { method: "POST" });

@@ -109,7 +109,8 @@ def warmup():
     try:
         resp = client.invoke_agent_runtime(
             agentRuntimeArn=AGENT_ARN,
-            runtimeSessionId="warmup-" + uuid.uuid4().hex[:8],
+            # Generate a full 36-character string to satisfy AWS constraints
+            runtimeSessionId=str(uuid.uuid4()), 
             payload=json.dumps({"type": "warmup"}).encode("utf-8"),
         )
         parse_agent_response(resp)
