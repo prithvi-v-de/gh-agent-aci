@@ -3,6 +3,7 @@ import sys
 import io
 import json
 import re
+import logging
 import threading
 import queue
 import requests
@@ -26,10 +27,73 @@ CALLBACK_URL = os.environ.get(
 
 
 class AuthRequiredException(Exception):
-    """Uses Exception (not BaseException) so LangGraph ToolNode catches it."""
     def __init__(self, message):
         self.message = message
         super().__init__(message)
+
+
+# ── Thread-safe list to collect auth URLs from BOTH stdout and logging ──
+_captured_urls = []
+_capture_lock = threading.Lock()
+
+
+def _add_url(url):
+    with _capture_lock:
+        if url not in _captured_urls:
+            _captured_urls.append(url)
+
+
+def _get_urls():
+    with _capture_lock:
+        return list(_captured_urls)
+
+
+def _clear_urls():
+    with _capture_lock:
+        _captured_urls.clear()
+
+
+# ── Logging handler to catch auth URLs from the logging module ──
+class _AuthLogHandler(logging.Handler):
+    def emit(self, record):
+        try:
+            msg = self.format(record)
+            url = _extract_auth_url(msg)
+            if url:
+                _add_url(url)
+        except Exception:
+            pass
+
+
+# Install on ALL loggers (root + any SDK-specific ones)
+_log_handler = _AuthLogHandler()
+_log_handler.setLevel(logging.DEBUG)
+logging.getLogger().addHandler(_log_handler)
+logging.getLogger().setLevel(logging.DEBUG)
+# Also try common SDK logger names
+for logger_name in ["bedrock_agentcore", "bedrock_agentcore.identity", "botocore", "urllib3"]:
+    logging.getLogger(logger_name).addHandler(_log_handler)
+    logging.getLogger(logger_name).setLevel(logging.DEBUG)
+
+
+# ── Stdout/stderr interceptor that also scans for URLs ──
+class _URLCapturingWriter:
+    """Wraps a StringIO and scans every write for auth URLs."""
+    def __init__(self, buffer):
+        self.buffer = buffer
+
+    def write(self, text):
+        self.buffer.write(text)
+        url = _extract_auth_url(text)
+        if url:
+            _add_url(url)
+        return len(text)
+
+    def flush(self):
+        self.buffer.flush()
+
+    def getvalue(self):
+        return self.buffer.getvalue()
 
 
 @requires_access_token(
@@ -82,9 +146,13 @@ def _get_github_data(access_token=None):
 
 def _extract_auth_url(text):
     """Extract an authorization URL from text."""
-    match = re.search(r"(https://bedrock-agentcore[^\s'\"]+authorize[^\s'\"]*)", text)
+    if not text:
+        return None
+    # AgentCore authorize URL
+    match = re.search(r"(https://bedrock-agentcore[^\s'\"]+)", text)
     if match:
         return match.group(1)
+    # Any URL with authorize/oauth
     match = re.search(r"(https://[^\s'\"]*(?:authorize|oauth)[^\s'\"]*)", text)
     if match:
         return match.group(1)
@@ -92,16 +160,16 @@ def _extract_auth_url(text):
 
 
 def _call_github_with_timeout(timeout_seconds=25):
+    _clear_urls()
     result_queue = queue.Queue()
-
-    # SHARED StringIO buffers — readable from main thread while bg thread writes
     stdout_buf = io.StringIO()
     stderr_buf = io.StringIO()
 
     def _run():
         old_stdout, old_stderr = sys.stdout, sys.stderr
-        sys.stdout = stdout_buf
-        sys.stderr = stderr_buf
+        # Wrap in URL-scanning writers
+        sys.stdout = _URLCapturingWriter(stdout_buf)
+        sys.stderr = _URLCapturingWriter(stderr_buf)
         try:
             data = _get_github_data()
             result_queue.put(("ok", data))
@@ -114,7 +182,6 @@ def _call_github_with_timeout(timeout_seconds=25):
     t = threading.Thread(target=_run, daemon=True)
     t.start()
 
-    # Poll every 2s: check if thread finished OR if auth URL appeared in output
     elapsed = 0
     while elapsed < timeout_seconds:
         t.join(timeout=2)
@@ -134,33 +201,32 @@ def _call_github_with_timeout(timeout_seconds=25):
                 )
             raise value
 
-        # Check captured output for auth URL (while thread is still running)
-        all_output = stdout_buf.getvalue() + stderr_buf.getvalue()
-        url = _extract_auth_url(all_output)
-        if url:
+        # Check both sources for auth URL
+        urls = _get_urls()
+        if urls:
             raise AuthRequiredException(
                 f"🔒 **GitHub Authorization Required**\n\n"
-                f"[Click here to authorize GitHub access]({url})\n\n"
+                f"[Click here to authorize GitHub access]({urls[0]})\n\n"
                 f"After authorizing, come back and retry your command."
             )
 
         elapsed += 2
 
-    # Final check after full timeout
-    all_output = stdout_buf.getvalue() + stderr_buf.getvalue()
-    url = _extract_auth_url(all_output)
-    if url:
+    # Final check
+    urls = _get_urls()
+    if urls:
         raise AuthRequiredException(
             f"🔒 **GitHub Authorization Required**\n\n"
-            f"[Click here to authorize GitHub access]({url})\n\n"
+            f"[Click here to authorize GitHub access]({urls[0]})\n\n"
             f"After authorizing, come back and retry your command."
         )
 
+    all_output = stdout_buf.getvalue() + stderr_buf.getvalue()
     raise AuthRequiredException(
-        f"⚠️ **Timed out waiting for auth URL.**\n\n"
-        f"Debug — captured output: ```{all_output[:500] if all_output else 'EMPTY'}```\n\n"
-        f"This means the SDK is not printing the auth URL to stdout/stderr. "
-        f"Please check CloudWatch logs for the authorization URL."
+        f"⚠️ **Timed out.** Could not find auth URL in stdout, stderr, or logs.\n\n"
+        f"stdout: ```{stdout_buf.getvalue()[:300] or 'EMPTY'}```\n\n"
+        f"stderr: ```{stderr_buf.getvalue()[:300] or 'EMPTY'}```\n\n"
+        f"captured_urls: {_get_urls()}"
     )
 
 
@@ -228,3 +294,4 @@ def invoke(payload):
 
 if __name__ == "__main__":
     app.run()
+    
