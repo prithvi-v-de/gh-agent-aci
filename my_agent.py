@@ -1,7 +1,8 @@
 import os
+import sys
+import io
 import json
 import re
-import logging
 import threading
 import queue
 import requests
@@ -24,33 +25,13 @@ CALLBACK_URL = os.environ.get(
 )
 
 
-# ── Capture auth URLs from the SDK's log/print output ──
-_auth_url_store = []
-
-
-class _AuthURLLogHandler(logging.Handler):
-    """Intercepts log messages to capture the OAuth authorization URL."""
-    def emit(self, record):
-        msg = record.getMessage()
-        if "authorization url" in msg.lower() or "authorize?" in msg.lower():
-            match = re.search(r"(https://[^\s'\"]+)", msg)
-            if match:
-                _auth_url_store.append(match.group(1))
-
-
-# Attach to root logger so we catch the SDK's polling messages
-_handler = _AuthURLLogHandler()
-_handler.setLevel(logging.DEBUG)
-logging.getLogger().addHandler(_handler)
-logging.getLogger().setLevel(logging.DEBUG)
-
-
-class AuthRequiredException(BaseException):
+class AuthRequiredException(Exception):
+    """Uses Exception (not BaseException) so LangGraph ToolNode catches it."""
     def __init__(self, message):
         self.message = message
+        super().__init__(message)
 
 
-# ── GitHub data fetcher (OAuth-protected) ──
 @requires_access_token(
     provider_name="github-provider",
     scopes=["repo", "read:user"],
@@ -58,7 +39,6 @@ class AuthRequiredException(BaseException):
     callback_url=CALLBACK_URL,
 )
 def _get_github_data(access_token=None):
-    """Fetch the authenticated user's profile, repos, and top-language stats."""
     headers = {"Authorization": f"Bearer {access_token}"}
 
     profile_resp = requests.get("https://api.github.com/user", headers=headers)
@@ -100,53 +80,99 @@ def _get_github_data(access_token=None):
     )
 
 
-def _call_github_with_timeout(timeout_seconds=15):
-    """
-    Call _get_github_data in a thread. If the OAuth decorator starts polling
-    (because user hasn't authorized yet), we capture the auth URL from logs
-    and return it instead of blocking forever.
-    """
-    _auth_url_store.clear()
+def _extract_auth_url(text):
+    """Extract an authorization URL from text."""
+    match = re.search(r"(https://bedrock-agentcore[^\s'\"]+authorize[^\s'\"]*)", text)
+    if match:
+        return match.group(1)
+    match = re.search(r"(https://[^\s'\"]*(?:authorize|oauth)[^\s'\"]*)", text)
+    if match:
+        return match.group(1)
+    return None
+
+
+def _call_github_with_timeout(timeout_seconds=25):
     result_queue = queue.Queue()
 
+    # SHARED StringIO buffers — readable from main thread while bg thread writes
+    stdout_buf = io.StringIO()
+    stderr_buf = io.StringIO()
+
     def _run():
+        old_stdout, old_stderr = sys.stdout, sys.stderr
+        sys.stdout = stdout_buf
+        sys.stderr = stderr_buf
         try:
             data = _get_github_data()
             result_queue.put(("ok", data))
         except Exception as e:
             result_queue.put(("error", e))
+        finally:
+            sys.stdout = old_stdout
+            sys.stderr = old_stderr
 
     t = threading.Thread(target=_run, daemon=True)
     t.start()
-    t.join(timeout=timeout_seconds)
 
-    # If the thread finished, return its result
-    if not result_queue.empty():
-        status, value = result_queue.get_nowait()
-        if status == "ok":
-            return value
-        else:
+    # Poll every 2s: check if thread finished OR if auth URL appeared in output
+    elapsed = 0
+    while elapsed < timeout_seconds:
+        t.join(timeout=2)
+
+        # Thread finished?
+        if not result_queue.empty():
+            status, value = result_queue.get_nowait()
+            if status == "ok":
+                return value
+            err_str = str(value)
+            url = _extract_auth_url(err_str)
+            if url:
+                raise AuthRequiredException(
+                    f"🔒 **GitHub Authorization Required**\n\n"
+                    f"[Click here to authorize GitHub access]({url})\n\n"
+                    f"After authorizing, come back and retry your command."
+                )
             raise value
 
-    # Thread is still running (blocked in polling) — check for captured auth URL
-    if _auth_url_store:
-        url = _auth_url_store[0]
+        # Check captured output for auth URL (while thread is still running)
+        all_output = stdout_buf.getvalue() + stderr_buf.getvalue()
+        url = _extract_auth_url(all_output)
+        if url:
+            raise AuthRequiredException(
+                f"🔒 **GitHub Authorization Required**\n\n"
+                f"[Click here to authorize GitHub access]({url})\n\n"
+                f"After authorizing, come back and retry your command."
+            )
+
+        elapsed += 2
+
+    # Final check after full timeout
+    all_output = stdout_buf.getvalue() + stderr_buf.getvalue()
+    url = _extract_auth_url(all_output)
+    if url:
         raise AuthRequiredException(
             f"🔒 **GitHub Authorization Required**\n\n"
-            f"Please click the link below to authorize access, then retry your command:\n\n"
-            f"[Authorize GitHub Access]({url})"
+            f"[Click here to authorize GitHub access]({url})\n\n"
+            f"After authorizing, come back and retry your command."
         )
 
     raise AuthRequiredException(
-        "⚠️ **Timeout:** The agent is waiting for authorization but could not determine the auth URL. "
-        "Please check your AgentCore Identity configuration."
+        f"⚠️ **Timed out waiting for auth URL.**\n\n"
+        f"Debug — captured output: ```{all_output[:500] if all_output else 'EMPTY'}```\n\n"
+        f"This means the SDK is not printing the auth URL to stdout/stderr. "
+        f"Please check CloudWatch logs for the authorization URL."
     )
 
 
 @tool
 def fetch_github_profile():
-    """Fetches the authenticated user's GitHub profile, repos, and language stats. Requires no arguments."""
-    return _call_github_with_timeout(timeout_seconds=15)
+    """Fetches the authenticated user's GitHub profile, repos, and language stats."""
+    try:
+        return _call_github_with_timeout(timeout_seconds=25)
+    except AuthRequiredException:
+        raise
+    except Exception as e:
+        return f"⚠️ Error: {str(e)}"
 
 
 # ── LangGraph setup ──
@@ -189,7 +215,15 @@ def invoke(payload):
         return {"result": auth_err.message}
 
     except Exception as e:
-        return {"result": f"⚠️ Backend Error: {str(e)}"}
+        err_str = str(e)
+        url = _extract_auth_url(err_str)
+        if url:
+            return {
+                "result": f"🔒 **GitHub Authorization Required**\n\n"
+                          f"[Click here to authorize GitHub access]({url})\n\n"
+                          f"After authorizing, come back and retry your command."
+            }
+        return {"result": f"⚠️ Backend Error: {err_str}"}
 
 
 if __name__ == "__main__":
