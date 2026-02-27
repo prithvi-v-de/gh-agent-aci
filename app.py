@@ -6,7 +6,7 @@ from botocore.config import Config
 from flask import Flask, request, jsonify, render_template, session
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("FLASK_SECRET", uuid.uuid4().hex)
+app.secret_key = os.environ.get("FLASK_SECRET", "super_secret_dev_key_123")
 
 AGENT_ARN = "arn:aws:bedrock-agentcore:us-east-1:819079555973:runtime/myagent-bHKPpuHli3"
 AUTH_PREFIX = "__AUTH_REQUIRED__"
