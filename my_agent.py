@@ -1,19 +1,19 @@
 import os
 import json
+import asyncio
 import logging
 import requests
 from typing import TypedDict, Annotated
 
 from bedrock_agentcore import BedrockAgentCoreApp
-from bedrock_agentcore.runtime import BedrockAgentCoreContext
-from bedrock_agentcore.services.identity import IdentityClient
+from bedrock_agentcore.identity.auth import requires_access_token
+from bedrock_agentcore.services.identity import TokenPoller
 from langgraph.graph import StateGraph, START
 from langgraph.prebuilt import ToolNode, tools_condition
 from langgraph.graph.message import add_messages
 from langchain_aws import ChatBedrockConverse
 from langchain_core.tools import tool
 from langchain_core.messages import HumanMessage
-from pathlib import Path
 
 app = BedrockAgentCoreApp()
 
@@ -27,80 +27,53 @@ CALLBACK_URL = os.environ.get(
     "https://legendary-memory-4j45x49gp6p63j5gr-8501.app.github.dev/?auth=success",
 )
 
+# ── Shared state ──
+_auth_state = {"url": None}
+_token_cache = {"token": None}
+
 
 class AuthRequiredException(BaseException):
+    """BaseException so it escapes everything."""
     def __init__(self, url):
         self.url = url
         super().__init__(url)
 
 
-def _get_workload_token():
-    """Get workload access token — check runtime context first, then fall back to local dev."""
-    # Try runtime context (when running in AgentCore)
-    token = BedrockAgentCoreContext.get_workload_access_token()
-    if token:
-        logger.info("Got workload token from runtime context")
-        return token
-
-    # Local dev fallback — read from .agentcore.json
-    logger.info("No runtime context token, using local dev fallback")
-    config_path = Path(".agentcore.json")
-    config = {}
-    if config_path.exists():
-        with open(config_path) as f:
-            config = json.load(f) or {}
-
-    workload_name = config.get("workload_identity_name", "myagent-workload")
-    user_id = config.get("user_id", "agent001")
-    logger.info(f"Using workload={workload_name}, user_id={user_id}")
-
-    client = IdentityClient(region="us-east-1")
-    resp = client.get_workload_access_token(workload_name, user_id=user_id)
-    return resp["workloadAccessToken"]
+def _store_auth_url(url: str):
+    """on_auth_url callback — stores URL, does NOT raise."""
+    logger.info(f"on_auth_url received: {url[:80]}...")
+    _auth_state["url"] = url
 
 
-def _get_github_token():
-    """
-    Call the identity API directly to get a GitHub OAuth token.
-    Returns the access_token string, or raises AuthRequiredException with the auth URL.
-    """
-    client = IdentityClient(region="us-east-1")
-    workload_token = _get_workload_token()
-
-    # Call get_resource_oauth2_token directly
-    req = {
-        "resourceCredentialProviderName": "github-provider",
-        "scopes": ["repo", "read:user"],
-        "oauth2Flow": "USER_FEDERATION",
-        "workloadIdentityToken": workload_token,
-        "resourceOauth2ReturnUrl": CALLBACK_URL,
-    }
-
-    logger.info("Calling get_resource_oauth2_token...")
-    response = client.dp_client.get_resource_oauth2_token(**req)
-
-    # Log what we got back
-    safe_resp = {k: v for k, v in response.items() if k != "accessToken"}
-    logger.info(f"Response keys: {list(response.keys())}")
-    logger.info(f"Response (sans token): {safe_resp}")
-
-    # If we got a token, return it
-    if "accessToken" in response:
-        logger.info("Got access token!")
-        return response["accessToken"]
-
-    # If we got an auth URL, return it to the user
-    if "authorizationUrl" in response:
-        auth_url = response["authorizationUrl"]
-        logger.info(f"Got authorization URL: {auth_url[:80]}...")
-        raise AuthRequiredException(auth_url)
-
-    raise RuntimeError(f"Unexpected response: {list(response.keys())}")
+class _QuickTokenPoller(TokenPoller):
+    """Waits 1s then raises with auth URL instead of polling for 600s."""
+    async def poll_for_token(self) -> str:
+        await asyncio.sleep(1)
+        url = _auth_state.get("url", "")
+        if url:
+            raise AuthRequiredException(url)
+        raise RuntimeError("No auth URL captured and no token available")
 
 
-def _fetch_github_data():
-    """Fetch GitHub data using the OAuth token from identity."""
-    token = _get_github_token()
+# ── This function uses the decorator to get the GitHub token ──
+# The decorator hooks into the app's identity system which has the
+# correct runtime-provided workload token (consistent across calls).
+@requires_access_token(
+    provider_name="github-provider",
+    scopes=["repo", "read:user"],
+    auth_flow="USER_FEDERATION",
+    callback_url=CALLBACK_URL,
+    on_auth_url=_store_auth_url,
+    token_poller=_QuickTokenPoller(),
+)
+def _get_github_token(access_token=None):
+    """Called OUTSIDE LangGraph. Returns the token or raises AuthRequiredException."""
+    logger.info("Got GitHub access token from decorator!")
+    return access_token
+
+
+# ── GitHub data fetcher (no decorator, uses cached token) ──
+def _fetch_github_data(token):
     headers = {"Authorization": f"Bearer {token}"}
 
     profile_resp = requests.get("https://api.github.com/user", headers=headers)
@@ -140,10 +113,14 @@ def _fetch_github_data():
     )
 
 
+# ── LangGraph tool uses the pre-fetched cached token ──
 @tool
 def fetch_github_profile():
     """Fetches the authenticated user's GitHub profile, repos, and language stats."""
-    return _fetch_github_data()
+    token = _token_cache.get("token")
+    if not token:
+        return "Error: No GitHub token available. Please authorize first."
+    return _fetch_github_data(token)
 
 
 # ── LangGraph setup ──
@@ -177,16 +154,33 @@ def invoke(payload):
     if payload.get("type") == "warmup":
         return {"result": "Agent is warm and ready."}
 
+    # Reset state each invocation
+    _auth_state["url"] = None
+    _token_cache["token"] = None
+
+    # ── STEP 1: Get GitHub token OUTSIDE LangGraph ──
+    # The decorator uses the runtime's workload token (consistent across calls).
+    # We catch the auth exception HERE instead of letting LangGraph swallow it.
+    try:
+        token = _get_github_token()
+        _token_cache["token"] = token
+        logger.info("GitHub token obtained, proceeding to LangGraph")
+    except AuthRequiredException as e:
+        logger.info(f"Auth required, returning URL to frontend")
+        return {"result": f"__AUTH_REQUIRED__{e.url}"}
+    except Exception as e:
+        logger.error(f"Auth check failed: {e}", exc_info=True)
+        if _auth_state.get("url"):
+            return {"result": f"__AUTH_REQUIRED__{_auth_state['url']}"}
+        return {"result": f"Error during auth check: {str(e)}"}
+
+    # ── STEP 2: Run LangGraph with pre-fetched token ──
     try:
         user_message = payload.get("prompt", "Hello")
         res = graph.invoke({"messages": [HumanMessage(content=user_message)]})
         return {"result": res["messages"][-1].content}
-
-    except AuthRequiredException as e:
-        return {"result": f"__AUTH_REQUIRED__{e.url}"}
-
     except Exception as e:
-        logger.error(f"Error: {e}", exc_info=True)
+        logger.error(f"Graph error: {e}", exc_info=True)
         return {"result": f"Error: {str(e)}"}
 
 
