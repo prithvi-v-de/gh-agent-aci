@@ -51,7 +51,11 @@ agents:
         arn: arn:aws:bedrock-agentcore:us-east-1:819079555973:token-vault/default/oauth2credentialprovider/github-provider
         type: github
         callback_url: ''
-      workload: null
+      workload:
+        name: myagent-workload
+        arn: arn:aws:bedrock-agentcore:us-east-1:819079555973:workload-identity-directory/default/workload-identity/myagent-workload
+        return_urls:
+        - https://gh-agent-aci-aq6nrmcvn96tycbvhnqjgf.streamlit.app
     aws_jwt:
       enabled: false
       audiences: []
