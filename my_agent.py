@@ -145,15 +145,15 @@ def _get_github_data(access_token=None):
 
 
 def _extract_auth_url(text):
-    """Extract an authorization URL from text."""
+    """Extract the OAuth authorization URL — NOT the control plane URL."""
     if not text:
         return None
-    # AgentCore authorize URL
-    match = re.search(r"(https://bedrock-agentcore[^\s'\"]+)", text)
+    # Specifically match the identity OAuth authorize endpoint
+    match = re.search(r"(https://bedrock-agentcore\.us-east-1\.amazonaws\.com/identities/oauth2/authorize[^\s'\"]*)", text)
     if match:
         return match.group(1)
-    # Any URL with authorize/oauth
-    match = re.search(r"(https://[^\s'\"]*(?:authorize|oauth)[^\s'\"]*)", text)
+    # Fallback: any URL with /identities/ or /oauth2/authorize
+    match = re.search(r"(https://[^\s'\"]*identities/oauth2/authorize[^\s'\"]*)", text)
     if match:
         return match.group(1)
     return None
