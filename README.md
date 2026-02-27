@@ -23,3 +23,12 @@ Deployment -
 *Configure AWS creds [SSO/Perm]
 *Deploys the agent via agentcore launch
 
+
+
+
+SDK: get_resource_oauth2_token → gets authorizationUrl + sessionUri  
+SDK: on_auth_url(url) → stores URL, returns normally ✅
+SDK: sessionUri captured in req ✅
+SDK: _QuickTokenPoller.poll_for_token() → waits 1s → raises AuthRequiredException ✅
+User: clicks auth link → authorizes → redirected back
+Next call: get_resource_oauth2_token → returns accessToken directly ✅ (line 214)

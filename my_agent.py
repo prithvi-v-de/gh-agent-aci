@@ -1,10 +1,12 @@
 import os
 import json
+import asyncio
 import requests
 from typing import TypedDict, Annotated
 
 from bedrock_agentcore import BedrockAgentCoreApp
 from bedrock_agentcore.identity.auth import requires_access_token
+from bedrock_agentcore.services.identity import TokenPoller
 from langgraph.graph import StateGraph, START
 from langgraph.prebuilt import ToolNode, tools_condition
 from langgraph.graph.message import add_messages
@@ -19,22 +21,39 @@ CALLBACK_URL = os.environ.get(
     "https://legendary-memory-4j45x49gp6p63j5gr-8501.app.github.dev",
 )
 
-# ── Global auth state — set by on_auth_url, read by entrypoint ──
+
+# ── Auth URL state — shared between on_auth_url callback and token poller ──
 _auth_state = {"url": None}
 
 
-def _handle_auth_url(url: str):
-    """Called by the SDK with the OAuth authorization URL."""
-    _auth_state["url"] = url
-    # Raise to stop the SDK's polling loop immediately
-    raise _AuthInterrupt(url)
-
-
-class _AuthInterrupt(BaseException):
+class AuthRequiredException(BaseException):
     """BaseException so it escapes LangGraph's ToolNode error handling."""
     def __init__(self, url):
         self.url = url
         super().__init__(url)
+
+
+def _store_auth_url(url: str):
+    """
+    on_auth_url callback. Does NOT raise — just stores the URL.
+    This lets the SDK continue to capture the sessionUri before polling starts.
+    """
+    _auth_state["url"] = url
+
+
+class _QuickTokenPoller(TokenPoller):
+    """
+    Custom token poller that immediately raises with the auth URL
+    instead of polling for 600 seconds. This returns control to the
+    user so they can click the link.
+    """
+    async def poll_for_token(self) -> str:
+        # Give the SDK a brief moment (in case token was already authorized)
+        await asyncio.sleep(1)
+        url = _auth_state.get("url", "")
+        if url:
+            raise AuthRequiredException(url)
+        raise RuntimeError("No auth URL captured and no token available")
 
 
 @requires_access_token(
@@ -42,7 +61,8 @@ class _AuthInterrupt(BaseException):
     scopes=["repo", "read:user"],
     auth_flow="USER_FEDERATION",
     callback_url=CALLBACK_URL,
-    on_auth_url=_handle_auth_url,
+    on_auth_url=_store_auth_url,
+    token_poller=_QuickTokenPoller(),
 )
 def _get_github_data(access_token=None):
     headers = {"Authorization": f"Bearer {access_token}"}
@@ -123,7 +143,7 @@ def invoke(payload):
     if payload.get("type") == "warmup":
         return {"result": "Agent is warm and ready."}
 
-    # Reset auth state
+    # Reset auth state each invocation
     _auth_state["url"] = None
 
     try:
@@ -131,20 +151,17 @@ def invoke(payload):
         res = graph.invoke({"messages": [HumanMessage(content=user_message)]})
         return {"result": res["messages"][-1].content}
 
-    except _AuthInterrupt as e:
-        # Return auth URL directly — bypasses LLM completely
-        return {
-            "result": f"__AUTH_REQUIRED__{e.url}"
-        }
+    except AuthRequiredException as e:
+        return {"result": f"__AUTH_REQUIRED__{e.url}"}
 
     except Exception as e:
-        # Check if auth URL was captured even if exception was different
-        if _auth_state["url"]:
-            return {
-                "result": f"__AUTH_REQUIRED__{_auth_state['url']}"
-            }
+        # Check if auth URL was stored even if a different exception occurred
+        if _auth_state.get("url"):
+            return {"result": f"__AUTH_REQUIRED__{_auth_state['url']}"}
         return {"result": f"Error: {str(e)}"}
 
 
 if __name__ == "__main__":
     app.run()
+
+    
