@@ -136,6 +136,7 @@
         const statusDot = document.getElementById("statusDot");
         const statusText = document.getElementById("statusText");
         let isProcessing = false;
+        let pendingSessionUri = null;
 
         // ── Bulletproof UUID Generator (Cannot be blocked by Codespaces) ──
         function generateUUID() {
