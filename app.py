@@ -7,7 +7,7 @@ from flask import Flask, request, jsonify, render_template
 app = Flask(__name__)
 # We don't even need a secret key anymore because we aren't using Flask sessions!
 
-AGENT_ARN = "arn:aws:bedrock-agentcore:us-east-1:819079555973:runtime/myagent-bHKPpuHli3"
+AGENT_ARN = "arn:aws:bedrock-agentcore:us-east-2:819079555973:runtime/myagent-WwnsnQFwSt"
 AUTH_PREFIX = "__AUTH_REQUIRED__"
 
 my_config = Config(
