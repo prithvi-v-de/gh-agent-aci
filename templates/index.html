@@ -136,9 +136,10 @@
         const statusDot = document.getElementById("statusDot");
         const statusText = document.getElementById("statusText");
         let isProcessing = false;
+
+        // ── Session URI tracking (critical for OAuth token matching) ──
         let pendingSessionUri = null;
 
-        // ── Bulletproof UUID Generator (Cannot be blocked by Codespaces) ──
         function generateUUID() {
             return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
                 var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
@@ -146,11 +147,16 @@
             });
         }
 
-        // ── Unbreakable Session Management ──
         let sessionId = localStorage.getItem("gh_agent_session");
         if (!sessionId || sessionId.length < 33) {
             sessionId = generateUUID();
             localStorage.setItem("gh_agent_session", sessionId);
+        }
+
+        // Persist sessionUri across page reloads (OAuth redirect)
+        let storedUri = localStorage.getItem("gh_agent_session_uri");
+        if (storedUri) {
+            pendingSessionUri = storedUri;
         }
 
         function addLine(html, cls = "") {
@@ -191,13 +197,22 @@
                 const res = await fetch("/api/chat", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ prompt: text, session_id: sessionId }),
+                    body: JSON.stringify({
+                        prompt: text,
+                        session_id: sessionId,
+                        session_uri: pendingSessionUri,
+                    }),
                 });
 
                 loadingLine.remove();
                 const data = await res.json();
 
                 if (data.type === "auth") {
+                    // Save sessionUri for after OAuth redirect
+                    if (data.session_uri) {
+                        pendingSessionUri = data.session_uri;
+                        localStorage.setItem("gh_agent_session_uri", data.session_uri);
+                    }
                     addLine(
                         `<span class="agent-prompt">agent@aws:~$</span> 🔒 GitHub authorization required<br>` +
                         `<a href="${data.url}" class="auth-btn">AUTHORIZE GITHUB ACCESS</a><br>` +
@@ -206,6 +221,9 @@
                 } else if (data.type === "error") {
                     addError(data.text);
                 } else {
+                    // Success — clear the sessionUri
+                    pendingSessionUri = null;
+                    localStorage.removeItem("gh_agent_session_uri");
                     addAgentLine(formatResponse(data.text));
                 }
             } catch (err) {
@@ -242,10 +260,11 @@
         }
 
         function switchAccount() {
-            // Because we killed Flask sessions, this can never fail!
             localStorage.removeItem("gh_agent_session");
+            localStorage.removeItem("gh_agent_session_uri");
             sessionId = generateUUID();
             localStorage.setItem("gh_agent_session", sessionId);
+            pendingSessionUri = null;
             
             clearTerminal();
             addSystem("Session reset. New identity created.");
@@ -274,22 +293,36 @@
                 isProcessing = true;
                 input.disabled = true;
 
-                // 4-Second buffer to let AgentCore securely stash the token
+                // Restore sessionUri from localStorage (survived the redirect)
+                let savedUri = localStorage.getItem("gh_agent_session_uri");
+
                 setTimeout(() => {
                     fetch("/api/chat", {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ prompt: "fetch my github profile", session_id: sessionId }),
+                        body: JSON.stringify({
+                            prompt: "fetch my github profile",
+                            session_id: sessionId,
+                            session_uri: savedUri,
+                        }),
                     })
                     .then(res => res.json())
                     .then(data => {
                         banner.remove();
                         addUserLine("fetch my github profile");
                         if (data.type === "auth") {
-                            addSystem("AWS is still processing. Please manually type the command again.");
+                            // Save new sessionUri if provided
+                            if (data.session_uri) {
+                                pendingSessionUri = data.session_uri;
+                                localStorage.setItem("gh_agent_session_uri", data.session_uri);
+                            }
+                            addSystem("Token not ready yet. Please type 'fetch my github profile' again in a few seconds.");
                         } else if (data.type === "error") {
                             addError(data.text);
                         } else {
+                            // Success — clear sessionUri
+                            pendingSessionUri = null;
+                            localStorage.removeItem("gh_agent_session_uri");
                             addAgentLine(formatResponse(data.text));
                         }
                     })
