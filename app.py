@@ -5,7 +5,6 @@ from botocore.config import Config
 from flask import Flask, request, jsonify, render_template
 
 app = Flask(__name__)
-# We don't even need a secret key anymore because we aren't using Flask sessions!
 
 AGENT_ARN = "arn:aws:bedrock-agentcore:us-east-2:819079555973:runtime/myagent-WwnsnQFwSt"
 AUTH_PREFIX = "__AUTH_REQUIRED__"
@@ -53,11 +52,8 @@ def parse_agent_response(response) -> str:
             return "Stream read error"
 
     raw = "".join(chunks)
-    try:
-        data = json.loads(raw)
-        return data.get("result", raw)
-    except (json.JSONDecodeError, TypeError):
-        return raw if raw.strip() else "Empty response."
+    # Return raw string — let the caller parse fields like session_uri
+    return raw if raw.strip() else "Empty response."
 
 @app.route("/")
 def index():
@@ -67,14 +63,13 @@ def index():
 def chat():
     data = request.json
     prompt = data.get("prompt", "")
-    session_uri = data.get("session_uri")  # NEW: from frontend
-    
+    session_uri = data.get("session_uri")
+
     client_session_id = data.get("session_id")
     if not client_session_id or len(client_session_id) < 33:
         return jsonify({"type": "error", "text": "Invalid session ID."}), 400
 
     try:
-        # Include session_uri in payload to agent
         agent_payload = {"prompt": prompt}
         if session_uri:
             agent_payload["session_uri"] = session_uri
@@ -86,20 +81,23 @@ def chat():
         )
         raw = parse_agent_response(response)
 
-        # Try to parse as JSON to extract session_uri
+        # Try to parse as JSON to extract both result and session_uri
+        resp_session_uri = None
         try:
             parsed = json.loads(raw)
-            result = parsed.get("result", raw)
-            resp_session_uri = parsed.get("session_uri")
+            if isinstance(parsed, dict):
+                result = parsed.get("result", raw)
+                resp_session_uri = parsed.get("session_uri")
+            else:
+                result = raw
         except (json.JSONDecodeError, TypeError):
             result = raw
-            resp_session_uri = None
 
         if result.startswith(AUTH_PREFIX):
             auth_url = result[len(AUTH_PREFIX):]
             resp = {"type": "auth", "url": auth_url}
             if resp_session_uri:
-                resp["session_uri"] = resp_session_uri  # NEW: pass to frontend
+                resp["session_uri"] = resp_session_uri
             return jsonify(resp)
 
         return jsonify({"type": "response", "text": result})
