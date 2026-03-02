@@ -53,7 +53,7 @@ agents:
         callback_url: ''
       workload:
         name: myagent-workload-v2
-        arn: null
+        arn: ""
         return_urls:
         - https://mmwr8fz3ux.us-east-2.awsapprunner.com/?auth=success
     aws_jwt:
