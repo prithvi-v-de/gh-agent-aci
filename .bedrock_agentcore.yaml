@@ -11,13 +11,13 @@ agents:
     container_runtime: null
     source_path: .
     aws:
-      execution_role: arn:aws:iam::819079555973:role/AmazonBedrockAgentCoreSDKRuntime-us-east-1-ef1b693622
+      execution_role: arn:aws:iam::819079555973:role/AmazonBedrockAgentCoreSDKRuntime-us-east-2-ef1b693622
       execution_role_auto_create: false
       account: '819079555973'
-      region: us-east-1
+      region: us-east-2
       ecr_repository: null
       ecr_auto_create: false
-      s3_path: s3://bedrock-agentcore-codebuild-sources-819079555973-us-east-1
+      s3_path: s3://bedrock-agentcore-codebuild-sources-819079555973-us-east-2
       s3_auto_create: false
       network_configuration:
         network_mode: PUBLIC
@@ -31,7 +31,7 @@ agents:
         max_lifetime: null
     bedrock_agentcore:
       agent_id: myagent-bHKPpuHli3
-      agent_arn: arn:aws:bedrock-agentcore:us-east-1:819079555973:runtime/myagent-bHKPpuHli3
+      agent_arn: arn:aws:bedrock-agentcore:us-east-2:819079555973:runtime/myagent-bHKPpuHli3
       agent_session_id: null
     codebuild:
       project_name: null
@@ -48,12 +48,12 @@ agents:
     identity:
       credential_providers:
       - name: github-provider
-        arn: arn:aws:bedrock-agentcore:us-east-1:819079555973:token-vault/default/oauth2credentialprovider/github-provider
+        arn: arn:aws:bedrock-agentcore:us-east-2:819079555973:token-vault/default/oauth2credentialprovider/github-provider
         type: github
         callback_url: ''
       workload:
         name: myagent-workload
-        arn: arn:aws:bedrock-agentcore:us-east-1:819079555973:workload-identity-directory/default/workload-identity/myagent-workload
+        arn: arn:aws:bedrock-agentcore:us-east-2:819079555973:workload-identity-directory/default/workload-identity/myagent-workload
         return_urls:
         - https://mmwr8fz3ux.us-east-2.awsapprunner.com/?auth=success
     aws_jwt:
@@ -67,4 +67,4 @@ agents:
     oauth_configuration: null
     api_key_env_var_name: null
     api_key_credential_provider_name: null
-    is_generated_by_agentcore_create: false
+    is_generated_by_agentcore_create: true
