@@ -24,7 +24,7 @@ if not logger.handlers:
 
 CALLBACK_URL = os.environ.get(
     "CALLBACK_URL",
-    "https://legendary-memory-4j45x49gp6p63j5gr-8501.app.github.dev/?auth=success",
+    "https://mmwr8fz3ux.us-east-2.awsapprunner.com/?auth=success",
 )
 
 # ── Shared state ──
