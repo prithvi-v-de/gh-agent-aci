@@ -11,14 +11,14 @@ agents:
     container_runtime: null
     source_path: .
     aws:
-      execution_role: null
-      execution_role_auto_create: true
+      execution_role: arn:aws:iam::819079555973:role/AmazonBedrockAgentCoreSDKRuntime-us-east-2-ef1b693622
+      execution_role_auto_create: false
       account: '819079555973'
       region: us-east-2
       ecr_repository: null
       ecr_auto_create: false
-      s3_path: null
-      s3_auto_create: true
+      s3_path: s3://bedrock-agentcore-codebuild-sources-819079555973-us-east-2
+      s3_auto_create: false
       network_configuration:
         network_mode: PUBLIC
         network_mode_config: null
@@ -53,7 +53,7 @@ agents:
         callback_url: ''
       workload:
         name: myagent-workload-v2
-        arn: "arn:aws:bedrock-agentcore:us-east-2:819079555973:workload-identity-directory/default/workload-identity/myagent-workload-v2"
+        arn: arn:aws:bedrock-agentcore:us-east-2:819079555973:workload-identity-directory/default/workload-identity/myagent-workload-v2
         return_urls:
         - https://mmwr8fz3ux.us-east-2.awsapprunner.com/?auth=success
     aws_jwt:
