@@ -146,7 +146,7 @@ def fetch_github_profile():
 tools = [fetch_github_profile]
 llm = ChatBedrockConverse(
     model="us.anthropic.claude-3-5-sonnet-20241022-v2:0",
-    region_name="us-east-1",
+    region_name="us-east-2",
 )
 llm_with_tools = llm.bind_tools(tools)
 
