@@ -1,4 +1,8 @@
 import os
+
+os.environ["AWS_DEFAULT_REGION"] = "us-east-2"
+os.environ["AWS_REGION"] = "us-east-2"
+
 import json
 import asyncio
 import logging
@@ -14,6 +18,7 @@ from langgraph.graph.message import add_messages
 from langchain_aws import ChatBedrockConverse
 from langchain_core.tools import tool
 from langchain_core.messages import HumanMessage
+
 
 app = BedrockAgentCoreApp()
 
