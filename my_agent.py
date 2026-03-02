@@ -46,7 +46,7 @@ def _get_workload_token():
     logger.info(f"Using workload={workload_name}, user_id={user_id}")
     identity = IdentityClient(region="us-east-2")
     resp = identity.dp_client.get_workload_access_token_for_user_id(
-        workloadIdentityName=workload_name, userId=user_id,
+        workloadName=workload_name, userId=user_id,
     )
     return resp["workloadAccessToken"]
 
