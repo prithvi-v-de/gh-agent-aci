@@ -15,7 +15,7 @@ my_config = Config(
     connect_timeout=60,
     retries={"max_attempts": 2, "mode": "adaptive"},
 )
-client = boto3.client("bedrock-agentcore", region_name="us-east-1", config=my_config)
+client = boto3.client("bedrock-agentcore", region_name="us-east-2", config=my_config)
 
 def parse_agent_response(response) -> str:
     chunks = []
