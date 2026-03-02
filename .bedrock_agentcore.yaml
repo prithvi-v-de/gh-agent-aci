@@ -52,8 +52,8 @@ agents:
         type: github
         callback_url: ''
       workload:
-        name: myagent-workload
-        arn: arn:aws:bedrock-agentcore:us-east-2:819079555973:workload-identity-directory/default/workload-identity/myagent-workload
+        name: myagent-workload-v2
+        arn: null
         return_urls:
         - https://mmwr8fz3ux.us-east-2.awsapprunner.com/?auth=success
     aws_jwt:
