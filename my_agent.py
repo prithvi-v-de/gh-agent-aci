@@ -4,21 +4,18 @@ os.environ["AWS_DEFAULT_REGION"] = "us-east-2"
 os.environ["AWS_REGION"] = "us-east-2"
 
 import json
-import asyncio
 import logging
 import requests
 from typing import TypedDict, Annotated
 
 from bedrock_agentcore import BedrockAgentCoreApp
-from bedrock_agentcore.identity.auth import requires_access_token
-from bedrock_agentcore.services.identity import TokenPoller
+from bedrock_agentcore.services.identity import IdentityClient
 from langgraph.graph import StateGraph, START
 from langgraph.prebuilt import ToolNode, tools_condition
 from langgraph.graph.message import add_messages
 from langchain_aws import ChatBedrockConverse
 from langchain_core.tools import tool
 from langchain_core.messages import HumanMessage
-
 
 app = BedrockAgentCoreApp()
 
@@ -32,112 +29,95 @@ CALLBACK_URL = os.environ.get(
     "https://mmwr8fz3ux.us-east-2.awsapprunner.com/",
 )
 
-# ── Shared state ──
-_auth_state = {"url": None}
 _token_cache = {"token": None}
 
 
-class AuthRequiredException(BaseException):
-    """BaseException so it escapes everything."""
-    def __init__(self, url):
-        self.url = url
-        super().__init__(url)
+def _get_workload_token():
+    from pathlib import Path
+    config_path = Path("/var/task/.agentcore.json")
+    if not config_path.exists():
+        config_path = Path(".agentcore.json")
+    config = {}
+    if config_path.exists():
+        with open(config_path) as f:
+            config = json.load(f) or {}
+    workload_name = config.get("workload_identity_name", "gh-agent-prod")
+    user_id = config.get("user_id", "agent001")
+    logger.info(f"Using workload={workload_name}, user_id={user_id}")
+    identity = IdentityClient(region="us-east-2")
+    resp = identity.dp_client.get_workload_access_token_for_user_id(
+        workloadIdentityName=workload_name, userId=user_id,
+    )
+    return resp["workloadAccessToken"]
 
 
-def _store_auth_url(url: str):
-    """on_auth_url callback — stores URL, does NOT raise."""
-    logger.info(f"on_auth_url received: {url[:80]}...")
-    _auth_state["url"] = url
-
-
-class _QuickTokenPoller(TokenPoller):
-    """Waits 1s then raises with auth URL instead of polling for 600s."""
-    async def poll_for_token(self) -> str:
-        await asyncio.sleep(1)
-        url = _auth_state.get("url", "")
-        if url:
-            raise AuthRequiredException(url)
-        raise RuntimeError("No auth URL captured and no token available")
-
-
-# ── This function uses the decorator to get the GitHub token ──
-# The decorator hooks into the app's identity system which has the
-# correct runtime-provided workload token (consistent across calls).
-@requires_access_token(
-    provider_name="github-provider",
-    scopes=["repo", "read:user"],
-    auth_flow="USER_FEDERATION",
-    callback_url=CALLBACK_URL,
-    on_auth_url=_store_auth_url,
-    token_poller=_QuickTokenPoller(),
-)
-def _get_github_token(access_token=None):
-    """Called OUTSIDE LangGraph. Returns the token or raises AuthRequiredException."""
-    logger.info("Got GitHub access token from decorator!")
-    return access_token
+def _get_github_token(session_uri=None):
+    workload_token = _get_workload_token()
+    identity = IdentityClient(region="us-east-2")
+    req = {
+        "resourceCredentialProviderName": "github-provider",
+        "scopes": ["repo", "read:user"],
+        "oauth2Flow": "USER_FEDERATION",
+        "workloadIdentityToken": workload_token,
+        "resourceOauth2ReturnUrl": CALLBACK_URL,
+    }
+    if session_uri:
+        req["sessionUri"] = session_uri
+        logger.info("Including sessionUri from previous auth request")
+    logger.info(f"Calling get_resource_oauth2_token (has_sessionUri={'yes' if session_uri else 'no'})...")
+    response = identity.dp_client.get_resource_oauth2_token(**req)
+    logger.info(f"Response keys: {list(response.keys())}")
+    if "accessToken" in response:
+        logger.info("SUCCESS: Got access token!")
+        return response["accessToken"], None
+    if "authorizationUrl" in response:
+        auth_url = response["authorizationUrl"]
+        new_session_uri = response.get("sessionUri", "")
+        logger.info(f"Auth needed. sessionUri present: {bool(new_session_uri)}")
+        return None, {"auth_url": auth_url, "session_uri": new_session_uri}
+    raise RuntimeError(f"Unexpected response: {list(response.keys())}")
 
 
 def _fetch_github_data(token):
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Accept": "application/vnd.github.v3+json"
-    }
-
-    # 1. Fetch Core Profile Data
+    headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github.v3+json"}
     profile_resp = requests.get("https://api.github.com/user", headers=headers)
     if profile_resp.status_code != 200:
         return f"Error fetching profile: {profile_resp.text}"
     profile = profile_resp.json()
-
-    # 2. Fetch Up to 100 Repositories for Better Analytics
-    repos_resp = requests.get(
-        "https://api.github.com/user/repos",
-        headers=headers,
-        params={"sort": "updated", "per_page": 100, "type": "owner"},
-    )
+    repos_resp = requests.get("https://api.github.com/user/repos", headers=headers,
+        params={"sort": "updated", "per_page": 100, "type": "owner"})
     repos = repos_resp.json() if repos_resp.status_code == 200 else []
-
-    # 3. Calculate Deep Metrics (The "Portfolio" Stats)
     total_stars = sum(r.get("stargazers_count", 0) for r in repos)
     total_issues = sum(r.get("open_issues_count", 0) for r in repos)
-    
-    # Calculate Dominant Languages
-    lang_count: dict[str, int] = {}
+    lang_count = {}
     for r in repos:
         lang = r.get("language")
         if lang:
             lang_count[lang] = lang_count.get(lang, 0) + 1
-    
-    # Grab the top 3 languages
     top_langs = sorted(lang_count.items(), key=lambda x: x[1], reverse=True)[:3]
     lang_str = ", ".join(f"{l} ({c} repos)" for l, c in top_langs) if top_langs else "N/A"
-
-    # 4. Isolate the "Star" Projects (Sort by stars instead of just recent pushes)
     top_repos = sorted(repos, key=lambda x: x.get("stargazers_count", 0), reverse=True)[:5]
     repo_summaries = []
     for r in top_repos:
         lang = r.get("language") or "N/A"
         stars = r.get("stargazers_count", 0)
         desc = r.get("description") or "No description"
-        repo_summaries.append(f"  - {r['name']} ({lang}, {stars} ⭐): {desc}")
-
-    # 5. Format a Data-Rich String for Claude
-    created_at = profile.get('created_at', '')[:10] if profile.get('created_at') else 'Unknown'
-    
+        repo_summaries.append(f"  - {r['name']} ({lang}, {stars} stars): {desc}")
+    created_at = profile.get("created_at", "")[:10] if profile.get("created_at") else "Unknown"
     return (
-        f"👤 GitHub Profile: {profile.get('login')} ({profile.get('name', 'N/A')})\n"
-        f"📅 Account Created: {created_at}\n"
-        f"🏢 Company: {profile.get('company') or 'N/A'} | 📍 Location: {profile.get('location') or 'N/A'}\n"
-        f"📖 Bio: {profile.get('bio') or 'N/A'}\n"
-        f"👥 Followers: {profile.get('followers')} | Following: {profile.get('following')}\n\n"
-        f"📊 DEEP METRICS (Based on {len(repos)} recent repos):\n"
+        f"GitHub Profile: {profile.get('login')} ({profile.get('name', 'N/A')})\n"
+        f"Account Created: {created_at}\n"
+        f"Company: {profile.get('company') or 'N/A'} | Location: {profile.get('location') or 'N/A'}\n"
+        f"Bio: {profile.get('bio') or 'N/A'}\n"
+        f"Followers: {profile.get('followers')} | Following: {profile.get('following')}\n\n"
+        f"DEEP METRICS (Based on {len(repos)} recent repos):\n"
         f"  - Total Stars Earned: {total_stars}\n"
         f"  - Total Open Issues Managed: {total_issues}\n"
         f"  - Dominant Stack: {lang_str}\n\n"
-        f"🌟 Top 5 Highlighted Repositories:\n" + "\n".join(repo_summaries)
+        f"Top 5 Highlighted Repositories:\n" + "\n".join(repo_summaries)
     )
 
-# ── LangGraph tool uses the pre-fetched cached token ──
+
 @tool
 def fetch_github_profile():
     """Fetches the authenticated user's GitHub profile, repos, and language stats."""
@@ -147,22 +127,15 @@ def fetch_github_profile():
     return _fetch_github_data(token)
 
 
-# ── LangGraph setup ──
 tools = [fetch_github_profile]
-llm = ChatBedrockConverse(
-    model="us.anthropic.claude-3-5-sonnet-20241022-v2:0",
-    region_name="us-east-2",
-)
+llm = ChatBedrockConverse(model="us.anthropic.claude-3-5-sonnet-20241022-v2:0", region_name="us-east-2")
 llm_with_tools = llm.bind_tools(tools)
-
 
 class State(TypedDict):
     messages: Annotated[list, add_messages]
 
-
 def chatbot_node(state: State) -> dict:
     return {"messages": [llm_with_tools.invoke(state["messages"])]}
-
 
 builder = StateGraph(State)
 builder.add_node("chatbot", chatbot_node)
@@ -177,28 +150,22 @@ graph = builder.compile()
 def invoke(payload):
     if payload.get("type") == "warmup":
         return {"result": "Agent is warm and ready."}
-
-    # Reset state each invocation
-    _auth_state["url"] = None
     _token_cache["token"] = None
-
-    # ── STEP 1: Get GitHub token OUTSIDE LangGraph ──
-    # The decorator uses the runtime's workload token (consistent across calls).
-    # We catch the auth exception HERE instead of letting LangGraph swallow it.
+    session_uri = payload.get("session_uri")
     try:
-        token = _get_github_token()
-        _token_cache["token"] = token
-        logger.info("GitHub token obtained, proceeding to LangGraph")
-    except AuthRequiredException as e:
-        logger.info(f"Auth required, returning URL to frontend")
-        return {"result": f"__AUTH_REQUIRED__{e.url}"}
+        token, auth_info = _get_github_token(session_uri=session_uri)
+        if token:
+            _token_cache["token"] = token
+            logger.info("GitHub token obtained, proceeding to LangGraph")
+        else:
+            logger.info("Auth required, returning URL + sessionUri")
+            return {
+                "result": f"__AUTH_REQUIRED__{auth_info['auth_url']}",
+                "session_uri": auth_info["session_uri"],
+            }
     except Exception as e:
         logger.error(f"Auth check failed: {e}", exc_info=True)
-        if _auth_state.get("url"):
-            return {"result": f"__AUTH_REQUIRED__{_auth_state['url']}"}
         return {"result": f"Error during auth check: {str(e)}"}
-
-    # ── STEP 2: Run LangGraph with pre-fetched token ──
     try:
         user_message = payload.get("prompt", "Hello")
         res = graph.invoke({"messages": [HumanMessage(content=user_message)]})
@@ -207,7 +174,5 @@ def invoke(payload):
         logger.error(f"Graph error: {e}", exc_info=True)
         return {"result": f"Error: {str(e)}"}
 
-
 if __name__ == "__main__":
     app.run()
-#Force Id Sync
