@@ -67,23 +67,40 @@ def index():
 def chat():
     data = request.json
     prompt = data.get("prompt", "")
+    session_uri = data.get("session_uri")  # NEW: from frontend
     
-    # STRATEGY: Rely 100% on the unbreakable frontend ID
     client_session_id = data.get("session_id")
     if not client_session_id or len(client_session_id) < 33:
         return jsonify({"type": "error", "text": "Invalid session ID."}), 400
 
     try:
+        # Include session_uri in payload to agent
+        agent_payload = {"prompt": prompt}
+        if session_uri:
+            agent_payload["session_uri"] = session_uri
+
         response = client.invoke_agent_runtime(
             agentRuntimeArn=AGENT_ARN,
             runtimeSessionId=client_session_id,
-            payload=json.dumps({"prompt": prompt}).encode("utf-8"),
+            payload=json.dumps(agent_payload).encode("utf-8"),
         )
-        result = parse_agent_response(response)
+        raw = parse_agent_response(response)
+
+        # Try to parse as JSON to extract session_uri
+        try:
+            parsed = json.loads(raw)
+            result = parsed.get("result", raw)
+            resp_session_uri = parsed.get("session_uri")
+        except (json.JSONDecodeError, TypeError):
+            result = raw
+            resp_session_uri = None
 
         if result.startswith(AUTH_PREFIX):
             auth_url = result[len(AUTH_PREFIX):]
-            return jsonify({"type": "auth", "url": auth_url})
+            resp = {"type": "auth", "url": auth_url}
+            if resp_session_uri:
+                resp["session_uri"] = resp_session_uri  # NEW: pass to frontend
+            return jsonify(resp)
 
         return jsonify({"type": "response", "text": result})
 
