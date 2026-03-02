@@ -4,6 +4,7 @@ os.environ["AWS_DEFAULT_REGION"] = "us-east-2"
 os.environ["AWS_REGION"] = "us-east-2"
 
 import json
+import time
 import logging
 import requests
 from typing import TypedDict, Annotated
@@ -67,14 +68,36 @@ def _get_github_token(session_uri=None):
     logger.info(f"Calling get_resource_oauth2_token (has_sessionUri={'yes' if session_uri else 'no'})...")
     response = identity.dp_client.get_resource_oauth2_token(**req)
     logger.info(f"Response keys: {list(response.keys())}")
+
     if "accessToken" in response:
         logger.info("SUCCESS: Got access token!")
         return response["accessToken"], None
+
     if "authorizationUrl" in response:
         auth_url = response["authorizationUrl"]
         new_session_uri = response.get("sessionUri", "")
         logger.info(f"Auth needed. sessionUri present: {bool(new_session_uri)}")
         return None, {"auth_url": auth_url, "session_uri": new_session_uri}
+
+    # sessionStatus means token is still being processed — poll a few times
+    if "sessionStatus" in response:
+        status = response.get("sessionStatus", "")
+        logger.info(f"Session status: {status} — polling for token...")
+        for attempt in range(5):
+            time.sleep(2)
+            retry_resp = identity.dp_client.get_resource_oauth2_token(**req)
+            logger.info(f"Poll {attempt+1}: keys={list(retry_resp.keys())}")
+            if "accessToken" in retry_resp:
+                logger.info("SUCCESS: Got access token after polling!")
+                return retry_resp["accessToken"], None
+            if "authorizationUrl" in retry_resp:
+                auth_url = retry_resp["authorizationUrl"]
+                new_session_uri = retry_resp.get("sessionUri", "")
+                return None, {"auth_url": auth_url, "session_uri": new_session_uri}
+        # All polls exhausted — tell frontend to retry
+        logger.warning("Token not ready after 5 polls")
+        return None, {"auth_url": "", "session_uri": session_uri or ""}
+
     raise RuntimeError(f"Unexpected response: {list(response.keys())}")
 
 
