@@ -8,6 +8,7 @@ app = Flask(__name__)
 
 AGENT_ARN = "arn:aws:bedrock-agentcore:us-east-2:819079555973:runtime/myagent-WwnsnQFwSt"
 AUTH_PREFIX = "__AUTH_REQUIRED__"
+PENDING_PREFIX = "__TOKEN_PENDING__"
 
 my_config = Config(
     read_timeout=600,
@@ -96,6 +97,12 @@ def chat():
         if result.startswith(AUTH_PREFIX):
             auth_url = result[len(AUTH_PREFIX):]
             resp = {"type": "auth", "url": auth_url}
+            if resp_session_uri:
+                resp["session_uri"] = resp_session_uri
+            return jsonify(resp)
+
+        if result.startswith(PENDING_PREFIX):
+            resp = {"type": "pending"}
             if resp_session_uri:
                 resp["session_uri"] = resp_session_uri
             return jsonify(resp)
