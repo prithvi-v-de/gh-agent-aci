@@ -218,6 +218,18 @@
                         `<a href="${data.url}" class="auth-btn">AUTHORIZE GITHUB ACCESS</a><br>` +
                         `<span class="system">After authorizing, you'll be redirected back here automatically.</span>`
                     );
+                } else if (data.type === "pending") {
+                    // Token not ready yet — save sessionUri and auto-retry
+                    if (data.session_uri) {
+                        pendingSessionUri = data.session_uri;
+                        localStorage.setItem("gh_agent_session_uri", data.session_uri);
+                    }
+                    addSystem("Authorization complete — token syncing with AWS. Retrying in 5s...");
+                    setTimeout(() => {
+                        input.value = text;
+                        sendMessage();
+                    }, 5000);
+                    return;
                 } else if (data.type === "error") {
                     addError(data.text);
                 } else {

@@ -83,8 +83,8 @@ def _get_github_token(session_uri=None):
     if "sessionStatus" in response:
         status = response.get("sessionStatus", "")
         logger.info(f"Session status: {status} — polling for token...")
-        for attempt in range(5):
-            time.sleep(2)
+        for attempt in range(10):
+            time.sleep(3)
             retry_resp = identity.dp_client.get_resource_oauth2_token(**req)
             logger.info(f"Poll {attempt+1}: keys={list(retry_resp.keys())}")
             if "accessToken" in retry_resp:
@@ -94,9 +94,9 @@ def _get_github_token(session_uri=None):
                 auth_url = retry_resp["authorizationUrl"]
                 new_session_uri = retry_resp.get("sessionUri", "")
                 return None, {"auth_url": auth_url, "session_uri": new_session_uri}
-        # All polls exhausted — tell frontend to retry
-        logger.warning("Token not ready after 5 polls")
-        return None, {"auth_url": "", "session_uri": session_uri or ""}
+        # All polls exhausted — return pending status
+        logger.warning("Token not ready after 10 polls")
+        return None, {"status": "pending", "session_uri": session_uri or ""}
 
     raise RuntimeError(f"Unexpected response: {list(response.keys())}")
 
@@ -181,6 +181,13 @@ def invoke(payload):
             _token_cache["token"] = token
             logger.info("GitHub token obtained, proceeding to LangGraph")
         else:
+            # Check if it's a pending status (auth done, token not ready yet)
+            if auth_info.get("status") == "pending":
+                logger.info("Token pending, returning retry signal")
+                return {
+                    "result": "__TOKEN_PENDING__",
+                    "session_uri": auth_info["session_uri"],
+                }
             logger.info("Auth required, returning URL + sessionUri")
             return {
                 "result": f"__AUTH_REQUIRED__{auth_info['auth_url']}",
