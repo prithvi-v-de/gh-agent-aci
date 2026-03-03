@@ -66,7 +66,17 @@ def _get_github_token(session_uri=None):
         req["sessionUri"] = session_uri
         logger.info("Including sessionUri from previous auth request")
     logger.info(f"Calling get_resource_oauth2_token (has_sessionUri={'yes' if session_uri else 'no'})...")
-    response = identity.dp_client.get_resource_oauth2_token(**req)
+    
+    try:
+        response = identity.dp_client.get_resource_oauth2_token(**req)
+    except Exception as e:
+        # If sessionUri is invalid/expired, retry without it
+        if "Invalid sessionUri" in str(e) and session_uri:
+            logger.warning("sessionUri invalid, retrying without it")
+            del req["sessionUri"]
+            response = identity.dp_client.get_resource_oauth2_token(**req)
+        else:
+            raise
     logger.info(f"Response keys: {list(response.keys())}")
 
     if "accessToken" in response:
